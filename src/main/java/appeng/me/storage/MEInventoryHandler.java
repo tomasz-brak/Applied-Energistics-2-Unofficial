@@ -209,8 +209,8 @@ public class MEInventoryHandler<T extends IAEStack<T>> implements IMEInventoryHa
 
     @Override
     public boolean isPrioritized(final T input) {
-        if (this.myWhitelist == IncludeExclude.WHITELIST) {
-            return this.myPartitionList.isListed(input) || this.internal.isPrioritized(input);
+        if (this.isSticky) {
+            return canAccept(input) || this.internal.isPrioritized(input);
         }
         return false;
     }
