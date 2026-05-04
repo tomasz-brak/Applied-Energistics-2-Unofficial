@@ -118,6 +118,7 @@ public enum ButtonToolTips implements Localization {
     BeSubstitutionsDescDisabled,
     CraftOnly,
     CraftEither,
+    MergeOnlyPlayerRequestedCrafts,
 
     Craft,
     Mod,
@@ -144,6 +145,8 @@ public enum ButtonToolTips implements Localization {
     InsertFromContainerToNetwork,
     HoldShiftProcessStack,
     RegisterContainerContent,
+    ChangeAmount,
+    RenameItem,
 
     SchedulingMode,
     SchedulingModeDefault,
@@ -174,6 +177,7 @@ public enum ButtonToolTips implements Localization {
     ToggleShowOnlyInvalidInterfaceOffDesc,
     HighlightInterface,
     HighlightInterfaceDesc,
+    RenameInterface,
     SearchFieldInputs,
     SearchFieldOutputs,
     SearchFieldNames,
@@ -234,6 +238,9 @@ public enum ButtonToolTips implements Localization {
     SearchGotoNext,
     SearchGotoPrev,
 
+    ControlButtonValues,
+    ControlButtonValuesHint,
+
     CPUAllowMode,
     CPUAllowAllDesc,
     CPUOnlyAllowPlayerDesc,
@@ -244,11 +251,47 @@ public enum ButtonToolTips implements Localization {
 
     PinsSection,
     PinsSectionActive,
-    PinsSectionDisabled,
+    PinsSectionHint,
 
     ToggleShowOnlySubstitute,
     ToggleShowOnlySubstituteOnDesc,
-    ToggleShowOnlySubstituteOffDesc;
+    ToggleShowOnlySubstituteOffDesc,
+
+    CPUName,
+    CPUCrafting,
+    Automation,
+    NumberOfStorageMemory,
+    NumberOfCoProcessors,
+
+    ReshuffleIncludeSubnets,
+    ReshuffleIncludeSubnetsOn,
+    ReshuffleIncludeSubnetsOff,
+    ReshuffleInsertOrder,
+    ReshuffleInsertOrderOn,
+    ReshuffleInsertOrderOff,
+    OpenReshuffle,
+    OpenReshuffleDesc,
+    OpenReshuffleOffDesc,
+    ReshuffleTab,
+    ReshuffleTabHint,
+    ReshuffleTabScan,
+    ReshuffleTabScanHint,
+    ReshuffleHealthTab,
+    ReshuffleHealthTabHint,
+    ReshuffleLocate,
+    CellHealthSortBy,
+    CellHealthSortByFill,
+    CellHealthSortBySize,
+
+    ReshuffleTabReshuffleHint,
+
+    InterfaceTerminalVisibility,
+    InterfaceTerminalVisibilityVisible,
+    InterfaceTerminalVisibilityHidden,
+
+    ToggleShowHiddenInterfaces,
+    ToggleShowHiddenInterfacesOnDesc,
+    ToggleShowHiddenInterfacesOffDesc;
 
     ButtonToolTips() {}
 

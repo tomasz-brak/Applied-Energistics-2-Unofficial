@@ -10,6 +10,9 @@
 
 package appeng.client.gui.implementations;
 
+import static appeng.util.item.AEFluidStackType.FLUID_STACK_TYPE;
+
+import java.text.BreakIterator;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -17,6 +20,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -28,11 +32,13 @@ import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.renderer.entity.RenderItem;
 import net.minecraft.entity.player.InventoryPlayer;
 import net.minecraft.inventory.Container;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
+import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.StatCollector;
 import net.minecraft.world.World;
@@ -52,16 +58,20 @@ import appeng.api.config.YesNo;
 import appeng.api.implementations.ICraftingPatternItem;
 import appeng.api.parts.IInterfaceTerminal;
 import appeng.api.storage.data.IAEStack;
+import appeng.api.storage.data.IAEStackType;
 import appeng.api.util.NamedDimensionalCoord;
 import appeng.client.gui.AEBaseGui;
+import appeng.client.gui.IGuiSub;
 import appeng.client.gui.IGuiTooltipHandler;
 import appeng.client.gui.IInterfaceTerminalPostUpdate;
 import appeng.client.gui.widgets.GuiImgButton;
 import appeng.client.gui.widgets.GuiScrollbar;
+import appeng.client.gui.widgets.GuiTabButton;
 import appeng.client.gui.widgets.IDropToFillTextField;
 import appeng.client.gui.widgets.MEGuiTextField;
 import appeng.client.render.highlighter.BlockPosHighlighter;
 import appeng.container.implementations.ContainerInterfaceTerminal;
+import appeng.container.interfaces.IContainerSubGui;
 import appeng.container.slot.AppEngSlot;
 import appeng.core.AEConfig;
 import appeng.core.AppEng;
@@ -75,12 +85,13 @@ import appeng.core.sync.packets.PacketInterfaceTerminalUpdate;
 import appeng.core.sync.packets.PacketInterfaceTerminalUpdate.PacketEntry;
 import appeng.core.sync.packets.PacketInventoryAction;
 import appeng.core.sync.packets.PacketRemoteRename;
+import appeng.core.sync.packets.PacketSwitchGuis;
+import appeng.core.sync.packets.PacketToggleInterfaceVisibility;
 import appeng.helpers.InventoryAction;
 import appeng.integration.IntegrationRegistry;
 import appeng.integration.IntegrationType;
 import appeng.integration.modules.NEI;
 import appeng.items.misc.ItemEncodedPattern;
-import appeng.me.cluster.implementations.CraftingCPUCluster;
 import appeng.tile.inventory.AppEngInternalInventory;
 import appeng.util.Platform;
 import appeng.util.item.AEItemStack;
@@ -100,7 +111,7 @@ import cpw.mods.fml.common.Loader;
  * @author firenoo
  */
 public class GuiInterfaceTerminal extends AEBaseGui
-        implements IDropToFillTextField, IGuiTooltipHandler, IInterfaceTerminalPostUpdate {
+        implements IDropToFillTextField, IGuiTooltipHandler, IInterfaceTerminalPostUpdate, IGuiSub {
 
     public static final int HEADER_HEIGHT = 52;
     public static final int INV_HEIGHT = 98;
@@ -118,6 +129,7 @@ public class GuiInterfaceTerminal extends AEBaseGui
     private final MEGuiTextField searchFieldNames;
     private final GuiImgButton guiButtonHideFull;
     private final GuiImgButton guiButtonAssemblersOnly;
+    private final GuiImgButton guiButtonShowHidden;
     private final GuiImgButton guiButtonBrokenRecipes;
     private final GuiImgButton guiButtonUseSubstitute;
     protected final GuiImgButton terminalStyleBox;
@@ -126,17 +138,25 @@ public class GuiInterfaceTerminal extends AEBaseGui
     private boolean onlyMolecularAssemblers = false;
     private boolean onlyBrokenRecipes = false;
     private boolean onlySubstitute = false;
+    private boolean showHidden = false;
     private boolean online;
     /** The height of the viewport. */
     private int viewHeight;
     private final List<String> extraOptionsText;
     private ItemStack tooltipStack;
+    private List<String> pendingSectionTooltip;
+    private int pendingSectionTooltipX;
+    private int pendingSectionTooltipY;
+    private List<String> pendingHideButtonTooltip;
+    private int pendingHideButtonTooltipX;
+    private int pendingHideButtonTooltipY;
     private final boolean neiPresent;
     protected static String searchFieldInputsText = "";
     protected static String searchFieldOutputsText = "";
     protected static String searchFieldNamesText = "";
 
     protected int offsetY;
+    private GuiTabButton originalGuiBtn;
 
     /*
      * Z-level Map (FLOATS) 0.0 - BACKGROUND 1.0 - ItemStacks 2.0 - Slot color overlays 20.0 - ItemStack overlays 21.0 -
@@ -156,9 +176,10 @@ public class GuiInterfaceTerminal extends AEBaseGui
 
     public GuiInterfaceTerminal(final Container cont) {
         super(cont);
+        if (cont instanceof IContainerSubGui subGui) subGui.setGuiLink(this);
 
         this.setScrollBar(new GuiScrollbar());
-        this.xSize = 208;
+        this.xSize = 209;
         this.ySize = 255;
         this.neiPresent = Loader.isModLoaded("NotEnoughItems");
 
@@ -193,17 +214,44 @@ public class GuiInterfaceTerminal extends AEBaseGui
                 AEConfig.instance.preserveSearchBar ? YesNo.YES : YesNo.NO);
         guiButtonAssemblersOnly = new GuiImgButton(0, 0, Settings.ACTIONS, null);
         guiButtonHideFull = new GuiImgButton(0, 0, Settings.ACTIONS, null);
+        guiButtonShowHidden = new GuiImgButton(0, 0, Settings.ACTIONS, null);
         guiButtonBrokenRecipes = new GuiImgButton(0, 0, Settings.ACTIONS, null);
         guiButtonUseSubstitute = new GuiImgButton(0, 0, Settings.ACTIONS, null);
         guiButtonSectionOrder = new GuiImgButton(0, 0, Settings.INTERFACE_TERMINAL_SECTION_ORDER, StringOrder.NATURAL);
 
         terminalStyleBox = new GuiImgButton(0, 0, Settings.TERMINAL_STYLE, null);
 
-        this.extraOptionsText = new ArrayList<>(2);
+        this.extraOptionsText = new ArrayList<>(4);
         extraOptionsText.add(ButtonToolTips.HighlightInterface.getLocal());
+        extraOptionsText.add(ButtonToolTips.HighlightInterfaceDesc.getLocal());
+        extraOptionsText.add(ButtonToolTips.RenameInterface.getLocal());
 
         NEI.searchField.putFormatter(this.searchFieldInputs);
         NEI.searchField.putFormatter(this.searchFieldOutputs);
+    }
+
+    private static String ensureGray(final String text) {
+        if (text == null) {
+            return null;
+        }
+
+        // Some tooltips are auto-grayed by AEBaseGui; this one is drawn manually via drawHoveringText.
+        // If the localization already contains formatting, keep it to avoid double formatting.
+        return text.indexOf('\u00a7') >= 0 ? text : EnumChatFormatting.GRAY + text;
+    }
+
+    private static List<String> buildInterfaceTerminalVisibilityTooltip(final GuiImgButton button) {
+        final List<String> tooltip = new ArrayList<>(2);
+        tooltip.add(ButtonToolTips.InterfaceTerminalVisibility.getLocal());
+
+        final Enum current = button.getCurrentValue();
+        final boolean visible = current == YesNo.YES;
+        tooltip.add(
+                ensureGray(
+                        (visible ? ButtonToolTips.InterfaceTerminalVisibilityVisible
+                                : ButtonToolTips.InterfaceTerminalVisibilityHidden).getLocal()));
+
+        return tooltip;
     }
 
     private void setScrollBar() {
@@ -261,6 +309,10 @@ public class GuiInterfaceTerminal extends AEBaseGui
         guiButtonAssemblersOnly.yPosition = offset;
         offset += 18;
 
+        guiButtonShowHidden.xPosition = guiLeft - 18;
+        guiButtonShowHidden.yPosition = offset;
+        offset += 18;
+
         guiButtonUseSubstitute.xPosition = guiLeft - 18;
         guiButtonUseSubstitute.yPosition = offset;
         offset += 18;
@@ -272,6 +324,7 @@ public class GuiInterfaceTerminal extends AEBaseGui
 
         buttonList.add(guiButtonAssemblersOnly);
         buttonList.add(guiButtonHideFull);
+        buttonList.add(guiButtonShowHidden);
         buttonList.add(guiButtonBrokenRecipes);
         buttonList.add(guiButtonSectionOrder);
         buttonList.add(searchStringSave);
@@ -279,6 +332,20 @@ public class GuiInterfaceTerminal extends AEBaseGui
         buttonList.add(guiButtonUseSubstitute);
 
         initCustomButtons(this.guiLeft - 18, offset);
+        initPrimaryGuiButton();
+    }
+
+    @Override
+    public void initPrimaryGuiButton() {
+        if (inventorySlots instanceof IContainerSubGui subGui && subGui.getPrimaryGuiIcon() != null) {
+            buttonList.add(
+                    this.originalGuiBtn = new GuiTabButton(
+                            this.guiLeft + this.xSize - 22,
+                            this.guiTop,
+                            subGui.getPrimaryGuiIcon(),
+                            subGui.getPrimaryGuiIcon().getDisplayName(),
+                            itemRender));
+        }
     }
 
     protected void repositionSlots() {
@@ -331,6 +398,9 @@ public class GuiInterfaceTerminal extends AEBaseGui
                 onlySubstitute ? ActionItems.TOGGLE_SHOW_ONLY_SUBSTITUTE_OFF
                         : ActionItems.TOGGLE_SHOW_ONLY_SUBSTITUTE_ON);
         guiButtonSectionOrder.set(AEConfig.instance.settings.getSetting(Settings.INTERFACE_TERMINAL_SECTION_ORDER));
+        guiButtonShowHidden.set(
+                showHidden ? ActionItems.TOGGLE_SHOW_HIDDEN_INTERFACES_ON
+                        : ActionItems.TOGGLE_SHOW_HIDDEN_INTERFACES_OFF);
 
         terminalStyleBox.set(AEConfig.instance.settings.getSetting(Settings.TERMINAL_STYLE));
 
@@ -339,6 +409,35 @@ public class GuiInterfaceTerminal extends AEBaseGui
         handleTooltip(mouseX, mouseY, searchFieldNames);
 
         super.drawScreen(mouseX, mouseY, btn);
+
+        if (pendingSectionTooltip != null) {
+            GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+            GL11.glDisable(GL11.GL_LIGHTING);
+            GL11.glDisable(GL11.GL_DEPTH_TEST);
+            GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+            drawHoveringText(pendingSectionTooltip, pendingSectionTooltipX, pendingSectionTooltipY, fontRendererObj);
+
+            GL11.glPopAttrib();
+            pendingSectionTooltip = null;
+        }
+
+        if (pendingHideButtonTooltip != null) {
+            GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+            GL11.glDisable(GL11.GL_LIGHTING);
+            GL11.glDisable(GL11.GL_DEPTH_TEST);
+            GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+            drawHoveringText(
+                    pendingHideButtonTooltip,
+                    pendingHideButtonTooltipX,
+                    pendingHideButtonTooltipY,
+                    fontRendererObj);
+
+            GL11.glPopAttrib();
+            pendingHideButtonTooltip = null;
+        }
+
     }
 
     @Override
@@ -355,6 +454,10 @@ public class GuiInterfaceTerminal extends AEBaseGui
 
     @Override
     protected void actionPerformed(final GuiButton btn) {
+        if (btn == this.originalGuiBtn) {
+            NetworkHandler.instance.sendToServer(new PacketSwitchGuis());
+            return;
+        }
         if (actionPerformedCustomButtons(btn)) return;
         if (btn == guiButtonAssemblersOnly) {
             onlyMolecularAssemblers = !onlyMolecularAssemblers;
@@ -367,6 +470,9 @@ public class GuiInterfaceTerminal extends AEBaseGui
             masterList.markDirty();
         } else if (btn == guiButtonUseSubstitute) {
             onlySubstitute = !onlySubstitute;
+            masterList.markDirty();
+        } else if (btn == guiButtonShowHidden) {
+            showHidden = !showHidden;
             masterList.markDirty();
         } else if (btn instanceof GuiImgButton iBtn) {
             if (iBtn.getSetting() != Settings.ACTIONS) {
@@ -462,19 +568,23 @@ public class GuiInterfaceTerminal extends AEBaseGui
 
         final float guiScaleX = (float) mc.displayWidth / width;
         final float guiScaleY = (float) mc.displayHeight / height;
-        GL11.glScissor(
-                (int) ((guiLeft + VIEW_LEFT) * guiScaleX),
-                (int) ((height - (guiTop + HEADER_HEIGHT + viewHeight)) * guiScaleY),
-                (int) (VIEW_WIDTH * guiScaleX),
-                (int) (this.viewHeight * guiScaleY));
+        final int scissorX = (int) Math.floor((guiLeft + VIEW_LEFT) * guiScaleX);
+        final int scissorY = (int) Math.floor((height - (guiTop + HEADER_HEIGHT + viewHeight)) * guiScaleY);
+        final int scissorWidth = (int) Math.ceil(VIEW_WIDTH * guiScaleX) + 1;
+        final int scissorHeight = (int) Math.ceil(this.viewHeight * guiScaleY) + 1;
+        GL11.glScissor(scissorX, scissorY, scissorWidth, scissorHeight);
         GL11.glEnable(GL11.GL_SCISSOR_TEST);
+
+        pendingSectionTooltip = null;
+        pendingHideButtonTooltip = null;
 
         /*
          * Render each section
          */
         while (viewY < this.viewHeight && entryIdx < visibleSections.size()) {
             InterfaceSection section = visibleSections.get(entryIdx);
-            int sectionHeight = section.getHeight();
+            int titleHeight = getWrappedTitleHeight(section.name, VIEW_WIDTH - 4);
+            int sectionHeight = titleHeight + section.getEntriesHeight();
 
             /* Is it viewable/in the viewport at all? */
             if (viewY + sectionHeight < 0) {
@@ -492,6 +602,112 @@ public class GuiInterfaceTerminal extends AEBaseGui
     }
 
     /**
+     * Gets the total height of the title after wrapping, using TITLE_HEIGHT as step
+     */
+    public int getWrappedTitleHeight(String name, int maxWidth) {
+        List<String> lines = breakText(name, maxWidth);
+        return Math.max(InterfaceSection.TITLE_HEIGHT, lines.size() * InterfaceSection.TITLE_HEIGHT);
+    }
+
+    public List<String> breakText(String text, int maxWidth) {
+        List<String> lines = new ArrayList<>();
+        if (text == null || text.isEmpty()) return lines;
+
+        var lang = mc.getLanguageManager().getCurrentLanguage();
+        Locale locale = Locale.forLanguageTag(lang.toString().replace(" (", "-").replace(")", ""));
+        if (locale == null) locale = Locale.forLanguageTag(lang.getLanguageCode());
+        if (locale == null) locale = Locale.ENGLISH;
+
+        var breaker = BreakIterator.getLineInstance(locale);
+        breaker.setText(text);
+
+        var currentLine = new StringBuilder();
+        int start = breaker.first();
+        for (int end = breaker.next(); end != BreakIterator.DONE; start = end, end = breaker.next()) {
+            String word = text.substring(start, end);
+
+            if (fontRendererObj.getStringWidth(word) > maxWidth) {
+                if (currentLine.length() > 0) {
+                    lines.add(currentLine.toString());
+                    currentLine = new StringBuilder(toControlCodes(getControlCodes(currentLine.toString())));
+                }
+
+                for (int i = 0; i < word.length(); i++) {
+                    char c = word.charAt(i);
+                    if (fontRendererObj.getStringWidth(currentLine.toString() + c) > maxWidth) {
+                        lines.add(currentLine.toString());
+                        currentLine = new StringBuilder(toControlCodes(getControlCodes(currentLine.toString())) + c);
+                    } else {
+                        currentLine.append(c);
+                    }
+                }
+                continue;
+            }
+
+            String linePreview = currentLine + word;
+            if (fontRendererObj.getStringWidth(linePreview) > maxWidth && currentLine.length() > 0) {
+                lines.add(currentLine.toString());
+                String codes = toControlCodes(getControlCodes(currentLine.toString()));
+                currentLine = new StringBuilder(codes + word);
+            } else {
+                currentLine.append(word);
+            }
+        }
+
+        if (currentLine.length() > 0) {
+            lines.add(currentLine.toString());
+        }
+
+        return lines;
+    }
+
+    /**
+     * Extracts the effective Minecraft formatting control codes from a string.
+     *
+     * @param s the source string containing formatting codes (e.g., "§6§lHello§r§cWorld")
+     * @return the sequence of formatting codes that remain active at the end of the string, accounting for style resets
+     *         (e.g., "r§c")
+     */
+    public static String getControlCodes(String s) {
+        String controls = s.replaceAll("(?<!\u00a7)(.)", "");
+        String wiped = controls.replaceAll(".*r", "r");
+        return wiped;
+    }
+
+    /**
+     * Converts a raw character sequence into a string of Minecraft formatting codes.
+     *
+     * @param s the string of raw formatting characters to convert (e.g., "6l")
+     * @return the formatted string with each character prefixed by a section sign (e.g., "§6§l")
+     */
+    public static String toControlCodes(String s) {
+        return s.replaceAll(".", "\u00a7$0");
+    }
+
+    private void drawSectionIcon(ItemStack icon, int x, float y) {
+        if (icon == null) {
+            return;
+        }
+
+        GL11.glPushMatrix();
+        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_LIGHTING_BIT);
+        GL11.glTranslatef(x, y, ITEM_STACK_OVERLAY_Z + ITEM_STACK_Z + STEP_Z);
+        GL11.glScalef(0.625f, 0.625f, 1.0f);
+
+        RenderHelper.enableGUIStandardItemLighting();
+        GL11.glEnable(GL12.GL_RESCALE_NORMAL);
+        GL11.glEnable(GL11.GL_DEPTH_TEST);
+
+        RenderItem.getInstance().renderItemAndEffectIntoGUI(mc.fontRenderer, mc.renderEngine, icon, 0, 0);
+
+        GL11.glPopAttrib();
+        GL11.glPopMatrix();
+
+        bindTexture(BACKGROUND);
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
+    /**
      * Render the section (if it is visible)
      *
      * @param section   the section to render
@@ -501,74 +717,108 @@ public class GuiInterfaceTerminal extends AEBaseGui
      * @return the height of the section rendered in viewport coordinates, max of viewHeight.
      */
     private int drawSection(InterfaceSection section, int viewY, int relMouseX, int relMouseY) {
-        int title;
         int renderY = 0;
-        final int sectionBottom = viewY + section.getHeight() - 1;
         final int fontColor = GuiColors.InterfaceTerminalInventory.getColor();
-        /*
-         * Render title
-         */
-        bindTexture(BACKGROUND);
-        GL11.glTranslatef(0.0f, 0.0f, ITEM_STACK_OVERLAY_Z + ITEM_STACK_Z + STEP_Z);
-        if (sectionBottom > 0 && sectionBottom < InterfaceSection.TITLE_HEIGHT) {
-            /* Transition draw */
-            title = sectionBottom;
-        } else if (viewY < 0) {
-            /* Hidden title draw */
-            title = 0;
-        } else {
-            /* Normal title draw */
-            title = 0;
-        }
-        GL11.glTranslatef(0.0f, 0.0f, -(ITEM_STACK_OVERLAY_Z + ITEM_STACK_Z + STEP_Z));
-        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
 
+        ItemStack sectionIcon = null;
+        for (InterfaceTerminalEntry e : section.entries) {
+            if (e.selfRep != null) {
+                sectionIcon = e.selfRep;
+                break;
+            }
+        }
+
+        final int textXFirst = sectionIcon != null ? 14 : 2;
+        List<String> titleLines = breakText(section.name, VIEW_WIDTH - 4);
+
+        int actualTitleHeight = Math
+                .max(InterfaceSection.TITLE_HEIGHT, titleLines.size() * InterfaceSection.TITLE_HEIGHT);
+
+        /*
+         * Render entries first (to keep titles on top layer if needed)
+         */
         Iterator<InterfaceTerminalEntry> visible = section.getVisible();
         while (visible.hasNext()) {
             InterfaceTerminalEntry entry = visible.next();
-            if (viewY + renderY + entry.rows * 18 + 1 > 0 && viewY + renderY < viewHeight) {
-                renderY += drawEntry(
-                        entry,
-                        viewY + InterfaceSection.TITLE_HEIGHT + renderY,
-                        title,
-                        relMouseX,
-                        relMouseY);
+            int entryTop = viewY + actualTitleHeight + renderY;
+            int entryHeight = entry.rows * 18 + 1;
+
+            if (entryTop + entryHeight > 0 && entryTop < viewHeight) {
+                renderY += drawEntry(entry, entryTop, viewY + actualTitleHeight, relMouseX, relMouseY);
             } else {
                 entry.dispY = -9999;
                 entry.optionsButton.yPosition = -1;
-                renderY += entry.rows * 18 + 1;
+                renderY += entryHeight;
             }
         }
+
         /*
          * Render title
          */
         bindTexture(BACKGROUND);
+        GL11.glPushMatrix();
         GL11.glTranslatef(0.0f, 0.0f, ITEM_STACK_OVERLAY_Z + ITEM_STACK_Z + STEP_Z);
-        if (sectionBottom > 0 && sectionBottom < InterfaceSection.TITLE_HEIGHT) {
-            /* Transition draw */
-            drawTexturedModalRect(
-                    0,
-                    0,
-                    VIEW_LEFT,
-                    HEADER_HEIGHT + InterfaceSection.TITLE_HEIGHT - sectionBottom,
-                    VIEW_WIDTH,
-                    sectionBottom);
-            fontRendererObj.drawString(section.name, 2, sectionBottom - InterfaceSection.TITLE_HEIGHT + 2, fontColor);
-        } else if (viewY < 0) {
-            /* Hidden title draw */
-            GL11.glDisable(GL11.GL_DEPTH_TEST);
-            GL11.glTranslatef(0.0f, 0.0f, 100f);
-            drawTexturedModalRect(0, 0, VIEW_LEFT, HEADER_HEIGHT, VIEW_WIDTH, InterfaceSection.TITLE_HEIGHT);
-            fontRendererObj.drawString(section.name, 2, 2, fontColor);
-            GL11.glEnable(GL11.GL_DEPTH_TEST);
-        } else {
-            /* Normal title draw */
-            drawTexturedModalRect(0, viewY, VIEW_LEFT, HEADER_HEIGHT, VIEW_WIDTH, InterfaceSection.TITLE_HEIGHT);
-            fontRendererObj.drawString(section.name, 2, viewY + 2, fontColor);
-        }
-        GL11.glTranslatef(0.0f, 0.0f, -(ITEM_STACK_OVERLAY_Z + ITEM_STACK_Z + STEP_Z));
 
-        return InterfaceSection.TITLE_HEIGHT + renderY;
+        if (viewY < viewHeight && viewY + actualTitleHeight > 0) {
+            for (int i = 0; i < titleLines.size(); i++) {
+                int lineY = viewY + (i * InterfaceSection.TITLE_HEIGHT);
+                if (lineY + InterfaceSection.TITLE_HEIGHT > 0 && lineY < viewHeight) {
+                    drawTexturedModalRect(
+                            0,
+                            lineY,
+                            VIEW_LEFT,
+                            HEADER_HEIGHT,
+                            VIEW_WIDTH,
+                            InterfaceSection.TITLE_HEIGHT);
+                }
+            }
+
+            for (int i = 0; i < titleLines.size(); i++) {
+                int textY = viewY + 2 + (i * InterfaceSection.TITLE_HEIGHT);
+                if (textY + 9 > 0 && textY < viewHeight) {
+                    fontRendererObj.drawString(titleLines.get(i), i == 0 ? textXFirst : 2, textY, fontColor);
+                }
+            }
+
+            section.titleY = viewY;
+        }
+
+        GL11.glPopMatrix();
+        GL11.glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
+
+        if (viewY + InterfaceSection.TITLE_HEIGHT <= 0 || viewY >= viewHeight) {
+            section.titleY = -9999;
+        }
+
+        if (sectionIcon != null && viewY + InterfaceSection.TITLE_HEIGHT > 0 && viewY < viewHeight) {
+            int iconX = 1;
+            float iconY = viewY + 0.5f;
+            drawSectionIcon(sectionIcon, iconX, iconY);
+
+            if (relMouseX >= iconX && relMouseX < iconX + 10 && relMouseY >= iconY && relMouseY < iconY + 10) {
+                List<String> tooltip = new ArrayList<>();
+                tooltip.add(sectionIcon.getDisplayName());
+
+                int priority = section.entries.get(0).priority;
+                tooltip.add(
+                        EnumChatFormatting.GRAY + StatCollector.translateToLocal("gui.appliedenergistics2.Priority")
+                                + ": "
+                                + priority);
+
+                if (section.entries.size() > 1) {
+                    tooltip.add(
+                            EnumChatFormatting.GRAY + StatCollector.translateToLocal("gui.appliedenergistics2.Group")
+                                    + ": "
+                                    + section.entries.size());
+                }
+
+                pendingSectionTooltip = tooltip;
+                pendingSectionTooltipX = relMouseX + guiLeft + VIEW_LEFT;
+                pendingSectionTooltipY = relMouseY + guiTop + HEADER_HEIGHT + 1;
+            }
+        }
+
+        return actualTitleHeight + renderY;
     }
 
     /**
@@ -613,21 +863,38 @@ public class GuiInterfaceTerminal extends AEBaseGui
             }
         }
         tessellator.draw();
-        /* Draw button */
+        /* Draw buttons — Alt switches to hide button, Shift switches to rename button */
         if (viewY + entry.optionsButton.height > 0 && viewY < viewHeight) {
+            final boolean altHeld = Keyboard.isKeyDown(Keyboard.KEY_LMENU) || Keyboard.isKeyDown(Keyboard.KEY_RMENU);
+            final boolean shiftHeld = isShiftKeyDown() && entry.isInPlayerDimension();
+            final GuiImgButton activeButton = altHeld ? entry.hideButton
+                : shiftHeld ? entry.renameButton : entry.optionsButton;
             entry.optionsButton.yPosition = viewY + 5;
-            entry.optionsButton.drawButton(mc, relMouseX, relMouseY);
-            if (entry.optionsButton.getMouseIn()
-                    && relMouseY >= Math.max(InterfaceSection.TITLE_HEIGHT, entry.optionsButton.yPosition)) {
-                // draw a tooltip
-                GL11.glTranslatef(0f, 0f, TOOLTIP_Z);
-                GL11.glDisable(GL11.GL_SCISSOR_TEST);
-                drawHoveringText(extraOptionsText, relMouseX, relMouseY);
-                GL11.glTranslatef(0f, 0f, -TOOLTIP_Z);
-                GL11.glEnable(GL11.GL_SCISSOR_TEST);
+            entry.hideButton.yPosition = altHeld ? viewY + 5 : -1;
+            entry.renameButton.yPosition = shiftHeld && !altHeld ? viewY + 5 : -1;
+            activeButton.drawButton(mc, relMouseX, relMouseY);
+            if (activeButton.getMouseIn()
+                    && relMouseY >= Math.max(titleBottom - viewY + activeButton.yPosition, activeButton.yPosition)) {
+                if (altHeld) {
+                    pendingHideButtonTooltip = buildInterfaceTerminalVisibilityTooltip(entry.hideButton);
+                    pendingHideButtonTooltipX = relMouseX + guiLeft + VIEW_LEFT;
+                    pendingHideButtonTooltipY = relMouseY + guiTop + HEADER_HEIGHT + 1;
+                } else if (shiftHeld) {
+                    pendingHideButtonTooltip = Collections.singletonList(ButtonToolTips.RenameInterface.getLocal());
+                    pendingHideButtonTooltipX = relMouseX + guiLeft + VIEW_LEFT;
+                    pendingHideButtonTooltipY = relMouseY + guiTop + HEADER_HEIGHT + 1;
+                } else {
+                    GL11.glTranslatef(0f, 0f, TOOLTIP_Z);
+                    GL11.glDisable(GL11.GL_SCISSOR_TEST);
+                    drawHoveringText(extraOptionsText, relMouseX, relMouseY);
+                    GL11.glTranslatef(0f, 0f, -TOOLTIP_Z);
+                    GL11.glEnable(GL11.GL_SCISSOR_TEST);
+                }
             }
         } else {
             entry.optionsButton.yPosition = -1;
+            entry.hideButton.yPosition = -1;
+            entry.renameButton.yPosition = -1;
         }
         /* PASS 2: Items */
         outerItems:
@@ -650,7 +917,7 @@ public class GuiInterfaceTerminal extends AEBaseGui
                 ItemStack stack = inv.getStackInSlot(slotIdx);
 
                 boolean tooltip = relMouseX > colLeft - 1 && relMouseX < colRight - 1
-                        && relMouseY >= Math.max(viewY + rowYTop, InterfaceSection.TITLE_HEIGHT)
+                        && relMouseY >= Math.max(viewY + rowYTop, titleBottom)
                         && relMouseY < Math.min(viewY + rowYBot, viewHeight);
                 if (stack != null) {
                     // just in case non-pattern items show up (like in a GT AE machine), render them normally
@@ -685,6 +952,9 @@ public class GuiInterfaceTerminal extends AEBaseGui
                         } else if (entry.filteredRecipes[slotIdx]) {
                             GL11.glTranslatef(0.0f, 0.0f, ITEM_STACK_OVERLAY_Z);
                             drawRect(0, 0, 16, 16, GuiColors.ItemSlotOverlayUnpowered.getColor());
+                        } else if (hasInvalidTypeStack(stack, entry.supportedStackTypes)) {
+                            GL11.glTranslatef(0.0f, 0.0f, SLOT_Z - ITEM_STACK_OVERLAY_Z);
+                            drawRect(0, 0, 16, 16, GuiColors.ItemSlotOverlayFluidMismatch.getColor());
                         }
                     } else {
                         tooltipStack = stack;
@@ -700,7 +970,7 @@ public class GuiInterfaceTerminal extends AEBaseGui
                     // overlay highlight
                     GL11.glDisable(GL11.GL_LIGHTING);
                     GL11.glTranslatef(0.0f, 0.0f, SLOT_HOVER_Z);
-                    drawRect(colLeft, viewY + 1 + rowYTop, -2 + colRight, viewY - 1 + rowYBot, 0x77FFFFFF);
+                    drawRect(colLeft, viewY + 1 + rowYTop, -3 + colRight, viewY - 1 + rowYBot, 0x77FFFFFF);
                     GL11.glTranslatef(0.0f, 0.0f, -SLOT_HOVER_Z);
                     masterList.hoveredEntry = entry;
                     entry.hoveredSlotIdx = slotIdx;
@@ -902,18 +1172,42 @@ public class GuiInterfaceTerminal extends AEBaseGui
         this.masterList.markDirty();
     }
 
+    private static String translateRawName(String rawName, String suffix) {
+        if (rawName == null || rawName.isEmpty()) return "";
+        String translatedName;
+        if (StatCollector.canTranslate(rawName)) {
+            translatedName = StatCollector.translateToLocal(rawName);
+        } else {
+            String fallback = rawName + ".name";
+            if (StatCollector.canTranslate(fallback)) {
+                translatedName = StatCollector.translateToLocal(fallback);
+            } else {
+                translatedName = StatCollector.translateToFallback(rawName);
+            }
+        }
+        if (suffix != null && !suffix.isEmpty()) {
+            return translatedName + suffix;
+        }
+        return translatedName;
+    }
+
     private void parsePacketCmd(PacketInterfaceTerminalUpdate.PacketEntry cmd) {
         long id = cmd.entryId;
         if (cmd instanceof PacketInterfaceTerminalUpdate.PacketAdd addCmd) {
             InterfaceTerminalEntry entry = new InterfaceTerminalEntry(
                     id,
                     addCmd.name,
+                    addCmd.suffix,
                     addCmd.rows,
                     addCmd.rowSize,
                     addCmd.numSlots,
                     addCmd.online,
-                    addCmd.p2pOutput).setLocation(addCmd.x, addCmd.y, addCmd.z, addCmd.dim, addCmd.side)
+                    addCmd.p2pOutput,
+                    addCmd.supportedStackTypes,
+                    addCmd.priority).setLocation(addCmd.x, addCmd.y, addCmd.z, addCmd.dim, addCmd.side)
                             .setIcons(addCmd.selfRep, addCmd.dispRep).setItems(addCmd.items);
+            entry.terminalVisible = addCmd.terminalVisible;
+            entry.hideButton.set(entry.terminalVisible ? YesNo.YES : YesNo.NO);
             masterList.addEntry(entry);
         } else if (cmd instanceof PacketInterfaceTerminalUpdate.PacketRemove) {
             masterList.removeEntry(id);
@@ -942,16 +1236,22 @@ public class GuiInterfaceTerminal extends AEBaseGui
                 entry.numSlots = owCmd.numSlots;
             }
 
+            if (owCmd.priorityValid && entry.priority != owCmd.priority) {
+                entry.priority = owCmd.priority;
+                masterList.moveEntry(entry);
+            }
+            if (owCmd.terminalVisibleValid) {
+                entry.terminalVisible = owCmd.terminalVisible;
+                entry.hideButton.set(entry.terminalVisible ? YesNo.YES : YesNo.NO);
+            }
+
             masterList.isDirty = true;
         } else if (cmd instanceof PacketInterfaceTerminalUpdate.PacketRename renameCmd) {
             InterfaceTerminalEntry entry = masterList.list.get(id);
 
             if (entry != null) {
-                if (StatCollector.canTranslate(renameCmd.newName)) {
-                    entry.dispName = StatCollector.translateToLocal(renameCmd.newName);
-                } else {
-                    entry.dispName = StatCollector.translateToFallback(renameCmd.newName);
-                }
+                entry.dispName = translateRawName(renameCmd.newName, renameCmd.suffix);
+                masterList.moveEntry(entry);
             }
             masterList.isDirty = true;
         }
@@ -1066,6 +1366,30 @@ public class GuiInterfaceTerminal extends AEBaseGui
         }
     }
 
+    private static boolean hasInvalidTypeStack(final ItemStack stack, final IAEStackType<?>[] supportedTypes) {
+        if (stack == null || stack.getTagCompound() == null) return false;
+        final NBTTagCompound nbt = stack.getTagCompound();
+        if (nbt.getBoolean("InvalidPattern")) return false;
+        return hasInvalidTypeInTagList(nbt.getTagList("in", NBT.TAG_COMPOUND), supportedTypes)
+                || hasInvalidTypeInTagList(nbt.getTagList("out", NBT.TAG_COMPOUND), supportedTypes);
+    }
+
+    private static boolean hasInvalidTypeInTagList(final NBTTagList tagList, final IAEStackType<?>[] supportedTypes) {
+        outer: for (int i = 0; i < tagList.tagCount(); i++) {
+            final NBTTagCompound entry = tagList.getCompoundTagAt(i);
+            if (entry.hasKey("FluidName") && !Arrays.asList(supportedTypes).contains(FLUID_STACK_TYPE)) return true;
+            if (entry.hasKey("StackType")) {
+                for (IAEStackType<?> type : supportedTypes) {
+                    if (entry.getString("StackType").equals(type.getId())) {
+                        continue outer;
+                    }
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * Tracks the list of entries.
      */
@@ -1164,14 +1488,30 @@ public class GuiInterfaceTerminal extends AEBaseGui
         }
 
         public void addEntry(InterfaceTerminalEntry entry) {
-            InterfaceSection section = sections.get(entry.dispName);
+            addEntryToSection(entry);
+            list.put(entry.id, entry);
+            isDirty = true;
+        }
+
+        private void addEntryToSection(InterfaceTerminalEntry entry) {
+            String sectionKey = getSectionKey(entry);
+            InterfaceSection section = sections.get(sectionKey);
 
             if (section == null) {
-                section = new InterfaceSection(entry.dispName);
-                sections.put(entry.dispName, section);
+                section = new InterfaceSection(sectionKey, entry.dispName);
+                sections.put(sectionKey, section);
             }
             section.addEntry(entry);
-            list.put(entry.id, entry);
+        }
+
+        private String getSectionKey(InterfaceTerminalEntry entry) {
+            // Use a non-printable separator to avoid collisions between display names and priority values.
+            return entry.dispName + "\u0000" + entry.priority;
+        }
+
+        public void moveEntry(InterfaceTerminalEntry entry) {
+            removeEntryFromSection(entry);
+            addEntryToSection(entry);
             isDirty = true;
         }
 
@@ -1179,8 +1519,21 @@ public class GuiInterfaceTerminal extends AEBaseGui
             InterfaceTerminalEntry entry = list.remove(id);
 
             if (entry != null) {
-                entry.section.removeEntry(entry);
+                removeEntryFromSection(entry);
             }
+        }
+
+        private void removeEntryFromSection(InterfaceTerminalEntry entry) {
+            InterfaceSection section = entry.section;
+            if (section == null) {
+                return;
+            }
+
+            section.removeEntry(entry);
+            if (section.entries.isEmpty()) {
+                sections.remove(section.key);
+            }
+            isDirty = true;
         }
 
         public List<InterfaceSection> getVisibleSections() {
@@ -1217,6 +1570,7 @@ public class GuiInterfaceTerminal extends AEBaseGui
 
         public static final int TITLE_HEIGHT = 12;
 
+        String key;
         String name;
         List<InterfaceTerminalEntry> entries = new ArrayList<>();
         Set<InterfaceTerminalEntry> visibleEntries = new TreeSet<>(Comparator.comparing(e -> {
@@ -1229,8 +1583,10 @@ public class GuiInterfaceTerminal extends AEBaseGui
         int height;
         private boolean isDirty = true;
         boolean visible = false;
+        int titleY = -9999;
 
-        InterfaceSection(String name) {
+        InterfaceSection(String key, String name) {
+            this.key = key;
             this.name = name;
         }
 
@@ -1241,19 +1597,26 @@ public class GuiInterfaceTerminal extends AEBaseGui
             if (isDirty) {
                 update();
             }
-            return height;
+            // Dynamically calculate title height and add entries height
+            return getWrappedTitleHeight(this.name, VIEW_WIDTH - 4) + getEntriesHeight();
+        }
+
+        /**
+         * Gets total height of all visible entries only.
+         */
+        public int getEntriesHeight() {
+            if (isDirty) {
+                update();
+            }
+            int entriesHeight = 0;
+            for (InterfaceTerminalEntry entry : visibleEntries) {
+                entriesHeight += entry.guiHeight;
+            }
+            return entriesHeight;
         }
 
         private void update() {
             refreshVisible();
-            if (visibleEntries.isEmpty()) {
-                height = 0;
-            } else {
-                height = TITLE_HEIGHT;
-                for (InterfaceTerminalEntry entry : visibleEntries) {
-                    height += entry.guiHeight;
-                }
-            }
             isDirty = false;
         }
 
@@ -1264,6 +1627,7 @@ public class GuiInterfaceTerminal extends AEBaseGui
 
             for (InterfaceTerminalEntry entry : entries) {
                 if (!entry.online || entry.p2pOutput) continue;
+                if (!entry.terminalVisible && !showHidden) continue;
 
                 var moleAss = AEApi.instance().definitions().blocks().molecularAssembler().maybeStack(1);
                 entry.dispY = -9999;
@@ -1344,6 +1708,8 @@ public class GuiInterfaceTerminal extends AEBaseGui
         String dispName;
         AppEngInternalInventory inv;
         GuiImgButton optionsButton;
+        GuiImgButton hideButton;
+        GuiImgButton renameButton;
         /** Nullable - icon that represents the interface */
         ItemStack selfRep;
         /** Nullable - icon that represents the interface's "target" */
@@ -1355,8 +1721,11 @@ public class GuiInterfaceTerminal extends AEBaseGui
         int numSlots;
         int guiHeight;
         int dispY = -9999;
+        int priority;
         boolean online;
         boolean p2pOutput;
+        boolean terminalVisible = true;
+        IAEStackType<?>[] supportedStackTypes;
         private Boolean[] brokenRecipes;
         int numItems = 0;
         /** Should recipe be filtered out/grayed out? */
@@ -1364,18 +1733,24 @@ public class GuiInterfaceTerminal extends AEBaseGui
         Boolean[] useSubstitute;
         private int hoveredSlotIdx = -1;
 
-        InterfaceTerminalEntry(long id, String name, int rows, int rowSize, int numSlots, boolean online,
-                boolean p2pOutput) {
+        InterfaceTerminalEntry(long id, String name, String suffix, int rows, int rowSize, int numSlots, boolean online,
+                boolean p2pOutput, IAEStackType<?>[] supportedStackTypes, int priority) {
             this.id = id;
-            this.dispName = CraftingCPUCluster.translateFromNetwork(name);
+            this.dispName = translateRawName(name, suffix);
             this.inv = new AppEngInternalInventory(null, rows * rowSize, 1);
             this.rows = rows;
             this.rowSize = rowSize;
             this.numSlots = numSlots;
             this.online = online;
             this.p2pOutput = p2pOutput;
+            this.supportedStackTypes = supportedStackTypes;
+            this.priority = priority;
             this.optionsButton = new GuiImgButton(2, 0, Settings.ACTIONS, ActionItems.HIGHLIGHT_INTERFACE);
             this.optionsButton.setHalfSize(true);
+            this.hideButton = new GuiImgButton(2, 0, Settings.INTERFACE_TERMINAL, YesNo.YES);
+            this.hideButton.setHalfSize(true);
+            this.renameButton = new GuiImgButton(2, 0, Settings.ACTIONS, ActionItems.RENAME_INTERFACE);
+            this.renameButton.setHalfSize(true);
             this.guiHeight = 18 * rows + 1;
             this.brokenRecipes = new Boolean[rows * rowSize];
             this.useSubstitute = new Boolean[rows * rowSize];
@@ -1390,6 +1765,10 @@ public class GuiInterfaceTerminal extends AEBaseGui
             this.side = side;
 
             return this;
+        }
+
+        boolean isInPlayerDimension() {
+            return mc != null && mc.thePlayer != null && mc.thePlayer.dimension == this.dim;
         }
 
         InterfaceTerminalEntry setIcons(ItemStack selfRep, ItemStack dispRep) {
@@ -1432,7 +1811,6 @@ public class GuiInterfaceTerminal extends AEBaseGui
             final int newHasItem = stack != null ? 1 : 0;
 
             inv.setInventorySlotContents(idx, stack);
-            // Update item count
             numItems += newHasItem - oldHasItem;
             assert numItems >= 0;
         }
@@ -1507,16 +1885,25 @@ public class GuiInterfaceTerminal extends AEBaseGui
             if (!section.visible || btn < 0 || btn > 2) {
                 return false;
             }
-            if (mouseX >= optionsButton.xPosition && mouseX < 2 + optionsButton.width
-                    && mouseY > Math.max(optionsButton.yPosition, InterfaceSection.TITLE_HEIGHT)
+
+            // Validate options/hide button click (Alt switches to hide mode)
+            final boolean altHeld = Keyboard.isKeyDown(Keyboard.KEY_LMENU) || Keyboard.isKeyDown(Keyboard.KEY_RMENU);
+            if (mouseX >= optionsButton.xPosition && mouseX < optionsButton.xPosition + optionsButton.width
+                    && mouseY > optionsButton.yPosition
                     && mouseY <= Math.min(optionsButton.yPosition + optionsButton.height, viewHeight)) {
-                optionsButton.func_146113_a(mc.getSoundHandler());
-
-                if (isShiftKeyDown()) {
-                    NetworkHandler.instance.sendToServer(new PacketRemoteRename(x, y, z, dim, side));
-
+                if (altHeld) {
+                    hideButton.func_146113_a(mc.getSoundHandler());
+                    NetworkHandler.instance.sendToServer(new PacketToggleInterfaceVisibility(x, y, z, dim, side));
                     return true;
                 }
+
+                if (isShiftKeyDown() && isInPlayerDimension()) {
+                    renameButton.func_146113_a(mc.getSoundHandler());
+                    NetworkHandler.instance.sendToServer(new PacketRemoteRename(x, y, z, dim, side));
+                    return true;
+                }
+
+                optionsButton.func_146113_a(mc.getSoundHandler());
 
                 // When using the highlight from the interface terminal, we want it to only
                 // highlight the interface containing the patterns and not any output p2p interfaces
@@ -1538,7 +1925,7 @@ public class GuiInterfaceTerminal extends AEBaseGui
             int offsetY = mouseY - dispY - 1;
             int offsetX = mouseX - (VIEW_WIDTH - rowSize * 18) - 1;
             if (offsetX >= 0 && offsetX < (rowSize * 18)
-                    && mouseY > Math.max(dispY, InterfaceSection.TITLE_HEIGHT)
+                    && mouseY > dispY
                     && offsetY < Math.min(viewHeight - dispY, guiHeight - 1)) {
                 final int col = offsetX / 18;
                 final int row = offsetY / 18;

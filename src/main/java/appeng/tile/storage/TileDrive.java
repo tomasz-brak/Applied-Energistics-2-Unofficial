@@ -196,7 +196,7 @@ public class TileDrive extends AENetworkInvTile
         this.state = data.readInt() & STATE_MASK;
         this.type = data.readInt();
         final AEColor oldPaintedColor = this.paintedColor;
-        this.paintedColor = AEColor.values()[data.readByte()];
+        this.paintedColor = AEColor.fromOrdinal(data.readByte());
         this.getProxy().setColor(this.paintedColor);
         return oldPaintedColor != this.paintedColor || this.state != oldState || this.type != oldType;
     }
@@ -206,7 +206,7 @@ public class TileDrive extends AENetworkInvTile
         this.isCached = false;
         this.priority = data.getInteger("priority");
         if (data.hasKey("paintedColor")) {
-            this.paintedColor = AEColor.values()[data.getByte("paintedColor")];
+            this.paintedColor = AEColor.fromOrdinal(data.getByte("paintedColor"));
             this.getProxy().setColor(this.paintedColor);
         }
     }
@@ -322,7 +322,7 @@ public class TileDrive extends AENetworkInvTile
                             if (cell != null) {
                                 power += this.handlersBySlot[x].cellIdleDrain(is, cell);
 
-                                final MEInventoryHandler<IAEItemStack> ih = new MEInventoryHandler<IAEItemStack>(
+                                final MEInventoryHandler<IAEItemStack> ih = new DriveWatcher<IAEItemStack>(
                                         cell,
                                         cell.getStackType());
                                 ih.setPriority(this.priority);
@@ -339,6 +339,15 @@ public class TileDrive extends AENetworkInvTile
             this.getProxy().setIdlePowerUsage(power);
 
             this.isCached = true;
+        }
+    }
+
+    /// For compatibility with EquivalentEnergistics
+    /// https://github.com/GTNewHorizons/Applied-Energistics-2-Unofficial/issues/1225
+    private static class DriveWatcher<T extends IAEStack<T>> extends MEInventoryHandler<T> {
+
+        public DriveWatcher(final IMEInventory<T> i, final IAEStackType<T> type) {
+            super(i, type);
         }
     }
 

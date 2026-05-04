@@ -13,14 +13,21 @@ package appeng.client.gui.implementations;
 import static appeng.util.item.AEItemStackType.ITEM_STACK_TYPE;
 
 import java.io.IOException;
+import java.util.List;
 
 import net.minecraft.client.gui.GuiButton;
 import net.minecraft.entity.player.InventoryPlayer;
 import net.minecraft.init.Blocks;
+import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.EnumChatFormatting;
 
+import org.jetbrains.annotations.NotNull;
 import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
+
+import com.gtnewhorizon.gtnhlib.util.numberformatting.NumberFormatUtil;
+import com.gtnewhorizon.gtnhlib.util.numberformatting.options.FormatOptions;
 
 import appeng.api.config.ActionItems;
 import appeng.api.config.ItemSubstitution;
@@ -28,14 +35,19 @@ import appeng.api.config.PatternBeSubstitution;
 import appeng.api.config.Settings;
 import appeng.api.storage.ITerminalHost;
 import appeng.api.storage.StorageName;
+import appeng.api.storage.data.IAEItemStack;
+import appeng.api.storage.data.IAEStack;
 import appeng.api.storage.data.IAEStackType;
 import appeng.client.gui.slots.VirtualMEPatternSlot;
 import appeng.client.gui.slots.VirtualMEPhantomSlot;
+import appeng.client.gui.slots.VirtualMESlot;
 import appeng.client.gui.widgets.GuiImgButton;
 import appeng.client.gui.widgets.GuiTabButton;
 import appeng.container.implementations.ContainerPatternTerm;
 import appeng.container.slot.AppEngSlot;
+import appeng.container.slot.SlotRestrictedInput;
 import appeng.core.AELog;
+import appeng.core.localization.ButtonToolTips;
 import appeng.core.localization.GuiColors;
 import appeng.core.localization.GuiText;
 import appeng.core.sync.GuiBridge;
@@ -52,6 +64,8 @@ public class GuiPatternTerm extends GuiMEMonitorable {
     private static final String CRAFTMODE_CRFTING = "1";
     private static final String CRAFTMODE_PROCESSING = "0";
 
+    private static final FormatOptions FORMAT_OPTIONS = new FormatOptions().disableExponentialFormatting();
+
     private final ContainerPatternTerm container;
 
     private GuiTabButton tabCraftButton;
@@ -67,6 +81,8 @@ public class GuiPatternTerm extends GuiMEMonitorable {
     protected VirtualMEPatternSlot[] craftingSlots;
     protected VirtualMEPatternSlot[] outputSlots;
     private boolean craftingMode;
+    @NotNull
+    private IAEItemStack blankPatternView = ContainerPatternTerm.createBlankPattern().setStackSize(0);
 
     public GuiPatternTerm(final InventoryPlayer inventoryPlayer, final ITerminalHost te,
             final ContainerPatternTerm containerPatternTerm) {
@@ -87,6 +103,11 @@ public class GuiPatternTerm extends GuiMEMonitorable {
             NetworkHandler.instance.sendToServer(new PacketSwitchGuis(GuiBridge.GUI_PATTERN_MULTI));
         } else super.mouseClicked(xCoord, yCoord, btn);
 
+    }
+
+    @Override
+    protected boolean shouldShiftClickFillVirtualPhantomSlot(final Slot slot) {
+        return false;
     }
 
     @Override
@@ -354,6 +375,73 @@ public class GuiPatternTerm extends GuiMEMonitorable {
         } else {
             return true;
         }
+    }
+
+    @Override
+    public List<String> handleItemTooltip(ItemStack stack, int mouseX, int mouseY, List<String> lines) {
+        super.handleItemTooltip(stack, mouseX, mouseY, lines);
+
+        VirtualMESlot hoveredSlot = this.getVirtualMESlotUnderMouse();
+        if (hoveredSlot instanceof VirtualMEPatternSlot) {
+            IAEStack<?> stackInSlot = hoveredSlot.getAEStack();
+            if (stackInSlot != null) {
+                lines.add(ButtonToolTips.ChangeAmount.getLocal());
+            }
+            if (stackInSlot instanceof IAEItemStack) {
+                lines.add(ButtonToolTips.RenameItem.getLocal());
+            }
+        }
+
+        Slot s = getSlot(mouseX, mouseY);
+        if (s instanceof SlotRestrictedInput slot
+                && slot.getItemType() == SlotRestrictedInput.PlacableItemType.BLANK_PATTERN
+                && !slot.getHasStack()) {
+            lines.add(GuiText.BlankPatternInNetwork.getLocal());
+            lines.add(
+                    EnumChatFormatting.GRAY + String.format(
+                            ButtonToolTips.ItemsStored.getLocal(),
+                            NumberFormatUtil.formatNumber(this.blankPatternView.getStackSize(), FORMAT_OPTIONS)));
+        }
+
+        return lines;
+    }
+
+    @Override
+    public void postUpdate(List<IAEStack<?>> list) {
+        super.postUpdate(list);
+        for (IAEStack<?> stack : list) {
+            if (stack instanceof IAEItemStack ais && blankPatternView.equals(ais)) {
+                this.blankPatternView = ais;
+            }
+        }
+    }
+
+    @Override
+    public void func_146977_a(Slot s) {
+        if (s instanceof SlotRestrictedInput slot
+                && slot.getItemType() == SlotRestrictedInput.PlacableItemType.BLANK_PATTERN
+                && !slot.getHasStack()) {
+            this.blankPatternView.drawInGui(this.mc, slot.xDisplayPosition, slot.yDisplayPosition);
+            this.blankPatternView
+                    .drawOverlayInGui(this.mc, slot.xDisplayPosition, slot.yDisplayPosition, true, true, true, true);
+        } else {
+            super.func_146977_a(s);
+        }
+    }
+
+    @Override
+    public ItemStack getHoveredStack() {
+        Slot s = getSlot(this.currentMouseX, this.currentMouseY);
+        if (s instanceof SlotRestrictedInput slot
+                && slot.getItemType() == SlotRestrictedInput.PlacableItemType.BLANK_PATTERN
+                && !slot.getHasStack()) {
+            if (this.blankPatternView.getStackSize() > 0) {
+                return this.blankPatternView.getItemStackForNEI();
+            } else {
+                return this.blankPatternView.getItemStackForNEI(1);
+            }
+        }
+        return super.getHoveredStack();
     }
 
     /**

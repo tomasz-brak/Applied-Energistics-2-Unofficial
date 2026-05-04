@@ -104,6 +104,16 @@ public class ContainerCraftConfirm extends ContainerSubGui implements ICraftingC
         this.cpuTable.selectCPU(cpu);
     }
 
+    @Override
+    public void setCpuSortMode(int mode) {
+        this.cpuTable.setCpuSortMode(mode);
+    }
+
+    @Override
+    public void setCpuSortDirection(int mode) {
+        this.cpuTable.setCpuSortDirection(mode);
+    }
+
     public void onCPUUpdate(ICraftingCPU cpu) {
         if (cpu == null) {
             this.setCpuAvailableBytes(0);
@@ -199,8 +209,7 @@ public class ContainerCraftConfirm extends ContainerSubGui implements ICraftingC
                                     Actionable.SIMULATE,
                                     this.getActionSource());
                             long available = (availableStack == null) ? 0 : availableStack.getStackSize();
-                            if (available > 0) toExtract.setUsedPercent(toExtract.getStackSize() / (available / 100f));
-                            else toExtract.setUsedPercent(0f);
+                            toExtract.setUsedPercent(calculateUsedPercent(toExtract.getStackSize(), available));
                         }
 
                         if (toExtract.getStackSize() > 0) {
@@ -251,6 +260,19 @@ public class ContainerCraftConfirm extends ContainerSubGui implements ICraftingC
         this.verifyPermissions(SecurityPermissions.CRAFT, false);
     }
 
+    private static float calculateUsedPercent(long used, long available) {
+        if (used <= 0 || available <= 0) {
+            return 0f;
+        }
+        double usedPercent = (double) used * 100.0 / (double) available;
+        usedPercent = Math.max(0.0, Math.min(100.0, usedPercent));
+        double nearestInteger = Math.rint(usedPercent);
+        if (Math.abs(usedPercent - nearestInteger) < 1.0e-6) {
+            usedPercent = nearestInteger;
+        }
+        return (float) usedPercent;
+    }
+
     public IGrid getGrid() {
         final IActionHost h = ((IActionHost) this.getTarget());
         if (h == null || h.getActionableNode() == null) return null;
@@ -273,7 +295,7 @@ public class ContainerCraftConfirm extends ContainerSubGui implements ICraftingC
         if (c.allowMode() == CraftingAllow.ONLY_NONPLAYER) return false;
         if (this.getUsedBytes() <= 0) return false;
         if (c.isBusy() && this.cpuCraftingSameItem(c)) {
-            return c.getStorage() >= this.getUsedBytes() + c.getUsedStorage();
+            return c.isCraftingLinkStandalone() && c.getStorage() >= this.getUsedBytes() + c.getUsedStorage();
         }
         return c.getStorage() >= this.getUsedBytes() && !c.isBusy();
     }

@@ -42,6 +42,7 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.MovingObjectPosition;
 import net.minecraft.util.Vec3;
 import net.minecraft.world.World;
+import net.minecraftforge.common.util.Constants.NBT;
 import net.minecraftforge.common.util.ForgeDirection;
 
 import org.jetbrains.annotations.NotNull;
@@ -67,6 +68,7 @@ import appeng.api.crafting.ICraftingIconProvider;
 import appeng.api.implementations.ICraftingPatternItem;
 import appeng.api.implementations.IUpgradeableHost;
 import appeng.api.implementations.tiles.ICraftingMachine;
+import appeng.api.interfaces.IInterfaceNameProvider;
 import appeng.api.networking.GridFlags;
 import appeng.api.networking.IGrid;
 import appeng.api.networking.IGridNode;
@@ -99,7 +101,6 @@ import appeng.api.util.DimensionalCoord;
 import appeng.api.util.IConfigManager;
 import appeng.core.AEConfig;
 import appeng.core.AELog;
-import appeng.core.features.registries.BlockingModeIgnoreItemRegistry;
 import appeng.core.settings.TickRates;
 import appeng.me.GridAccessException;
 import appeng.me.cache.NetworkMonitor;
@@ -142,7 +143,6 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
     private static final Collection<Block> BAD_BLOCKS = new HashSet<>(100);
     private final int[] sides = { 0, 1, 2, 3, 4, 5, 6, 7, 8 };
     private final IAEItemStack[] requireWork = { null, null, null, null, null, null, null, null, null };
-    private final boolean[] hasFuzzyConfig = { false, false, false, false, false, false, false, false, false };
     private final MultiCraftingTracker craftingTracker;
     protected final AENetworkProxy gridProxy;
     private final IInterfaceHost iHost;
@@ -155,8 +155,6 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
     private WrapperInvSlot slotInv = new WrapperInvSlot(this.storage);
     private final Map<IAEStackType<?>, MEMonitorPassThrough<?>> monitorMap;
     private final UpgradeInventory upgrades;
-    private ItemStack stored;
-    private IAEItemStack fuzzyItemStack;
     private boolean hasConfig = false;
     private int priority;
     public List<ICraftingPatternDetails> craftingList = null;
@@ -297,7 +295,7 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
 
     public void readFromNBT(final NBTTagCompound data) {
         this.waitingToSend = null;
-        final NBTTagList waitingList = data.getTagList("waitingToSend", 10);
+        final NBTTagList waitingList = data.getTagList("waitingToSend", NBT.TAG_COMPOUND);
         if (waitingList != null) {
             for (int x = 0; x < waitingList.tagCount(); x++) {
                 final NBTTagCompound c = waitingList.getCompoundTagAt(x);
@@ -322,7 +320,7 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
             }
         };
         if (this.unlockEvent == UnlockCraftingEvent.RESULT) {
-            NBTTagList stackList = data.getTagList("unlockStacks", 10);
+            NBTTagList stackList = data.getTagList("unlockStacks", NBT.TAG_COMPOUND);
             for (int index = 0; index < stackList.tagCount(); index++) {
                 NBTTagCompound stackTag = stackList.getCompoundTagAt(index);
                 IAEStack<?> unlockStack = Platform.readStackNBT(stackTag, true);
@@ -397,6 +395,8 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
                 // :P
             }
         }
+
+        this.notifyNeighbors();
     }
 
     public void updateCraftingList() {
@@ -462,7 +462,6 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
 
         final int fuzzycards = this.getInstalledUpgrades(Upgrades.FUZZY);
         final ItemStack Stored = this.storage.getStackInSlot(slot);
-        this.stored = Stored;
 
         if (req == null && Stored != null) {
             final IAEItemStack work = AEApi.instance().storage().createItemStack(Stored);
@@ -474,17 +473,9 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
                 this.requireWork[slot] = req.copy();
                 return;
 
-                /*
-                 * Checks if a fuzzy-matched item exists, and sets the config slot stack to that item; and if it doesnt
-                 * exist, it sets the variable for it equal to an IAEItemStack version of the ItemStack in the storage
-                 * slot. This ensures fast and accurate adjustment of the stack size stocked in the storage slot.
-                 */
             } else if (((fuzzycards == 1) && (slot) > 5) || ((fuzzycards == 2) && (slot > 2)) || (fuzzycards == 3)) {
-                if (this.fuzzyItemStack == null) {
-                    this.fuzzyItemStack = AEApi.instance().storage().createItemStack(Stored);
-                }
                 if ((req.getStackSize() != Stored.stackSize)) {
-                    this.requireWork[slot] = this.fuzzyItemStack.copy();
+                    this.requireWork[slot] = AEApi.instance().storage().createItemStack(Stored);
                     this.requireWork[slot].setStackSize(req.getStackSize() - Stored.stackSize);
                     return;
                 }
@@ -565,6 +556,11 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
 
     public AppEngInternalInventory getPatterns() {
         return this.patterns;
+    }
+
+    public IAEStackType<?>[] getSupportedStackTypes() {
+        return this.isFluidInterface ? new IAEStackType<?>[] { ITEM_STACK_TYPE, FLUID_STACK_TYPE }
+                : new IAEStackType<?>[] { ITEM_STACK_TYPE };
     }
 
     public AppEngInternalInventory getUpgrades() {
@@ -652,42 +648,29 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
         return this.sides;
     }
 
-    public IAEItemStack[] fuzzyPoweredExtraction(final IEnergySource energy, final IMEInventory<IAEItemStack> cell,
-            final IAEItemStack itemStack, final ItemStack is, final BaseActionSource src, int iteration) {
-        Collection<IAEItemStack> fzlist = null;
-        IAEItemStack fuzzyItemStack = null;
-        IAEItemStack pe = null;
+    public IAEItemStack fuzzyPoweredExtraction(final IEnergySource energy, final IMEInventory<IAEItemStack> cell,
+            final IAEItemStack config, final BaseActionSource src, int iteration) {
+        Collection<IAEItemStack> fzlist;
         /*
          * This returns a NetworkInventoryHandler object. getSortedFuzzyItems has an Override definition in there.
          */
         if (cell instanceof NetworkMonitor<?>) {
             fzlist = ((NetworkMonitor<IAEItemStack>) cell).getHandler().getSortedFuzzyItems(
                     new ArrayList<>(),
-                    itemStack,
+                    config,
                     ((FuzzyMode) cm.getSetting(Settings.FUZZY_MODE)),
                     iteration);
 
-        } else return new IAEItemStack[] { null, fuzzyItemStack };
+        } else return null;
 
-        if (fzlist.iterator().hasNext()) {
-            fuzzyItemStack = fzlist.iterator().next();
-
-            /*
-             * Checks if the fuzzy-matched item can be merged with the ItemStack currently in the storage slot.
-             */
-            if ((fuzzyItemStack.isSameType(is)) || (is == null)) {
-                fuzzyItemStack.setStackSize(itemStack.getStackSize());
-
-                // To prevent duping in case fuzzy-matched item cannot be merged with stack in storage
-                // slot...
-            } else fuzzyItemStack = null;
-
-            if (fuzzyItemStack != null) {
-                pe = Platform.poweredExtraction(energy, cell, fuzzyItemStack, src);
-            }
+        final Iterator<IAEItemStack> fzIterator = fzlist.iterator();
+        if (fzIterator.hasNext()) {
+            final IAEItemStack fuzzyMatch = fzIterator.next();
+            fuzzyMatch.setStackSize(config.getStackSize());
+            return Platform.poweredExtraction(energy, cell, fuzzyMatch, src);
         }
-        return new IAEItemStack[] { pe, fuzzyItemStack };
 
+        return null;
     }
 
     @Override
@@ -755,6 +738,7 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
 
             final InventoryAdaptor ad = InventoryAdaptor.getAdaptor(te, s.getOpposite());
             if (ad != null) {
+                this.duringPushOut = true;
                 final Iterator<IAEStack<?>> iter = this.waitingToSend.iterator();
                 while (iter.hasNext()) {
                     IAEStack<?> aes = iter.next();
@@ -778,8 +762,8 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
                         iter.remove();
                     }
                 }
+                this.duringPushOut = false;
             }
-
         }
 
         if (this.waitingToSend.isEmpty()) {
@@ -857,22 +841,18 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
                     throw new GridAccessException();
                 }
 
-                if (((fuzzycards == 1) && (x > 5)) || ((fuzzycards == 2) && (x > 2)) || (fuzzycards == 3)) {
+                if (this.storage.getStackInSlot(x) == null
+                        && (((fuzzycards == 1) && (x > 5)) || ((fuzzycards == 2) && (x > 2)) || (fuzzycards == 3))) {
                     int iteration = IterationCounter.fetchNewId();
-                    final IAEItemStack[] fpe = fuzzyPoweredExtraction(
+                    acquired = fuzzyPoweredExtraction(
                             src,
                             this.destination,
                             itemStack,
-                            this.stored,
                             this.interfaceRequestSource,
                             iteration);
-                    acquired = fpe[0];
-                    this.fuzzyItemStack = fpe[1];
-                    hasFuzzyConfig[x] = true;
                 } else {
                     acquired = Platform
                             .poweredExtraction(src, this.destination, itemStack, this.interfaceRequestSource);
-                    this.fuzzyItemStack = null;
                 }
                 if (acquired != null) {
                     changed = true;
@@ -1039,7 +1019,7 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
     private boolean tileHasOnlyIgnoredItems(InventoryAdaptor ad) {
         for (ItemSlot i : ad) {
             ItemStack is = i.getItemStack();
-            if (is == null || BlockingModeIgnoreItemRegistry.instance().isIgnored(is)) continue;
+            if (is == null || AEApi.instance().registries().blockingModeIgnoreItem().isIgnored(is)) continue;
             return false;
         }
         return true;
@@ -1058,7 +1038,8 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
 
             if (sink != null) {
                 OptionalInt present = sink.getStoredItemsInSink(
-                        stack -> !BlockingModeIgnoreItemRegistry.instance().isIgnored(stack.toStackFast()));
+                        stack -> !AEApi.instance().registries().blockingModeIgnoreItem()
+                                .isIgnored(stack.toStackFast()));
 
                 return present.orElse(0) == 0;
             }
@@ -1645,16 +1626,53 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
     }
 
     public String getTermName() {
+        final String baseName = getRawTermName();
+        final String suffix = getAdjacentNameSuffix();
+        if (suffix == null) {
+            return baseName;
+        }
+        return baseName + suffix;
+    }
+
+    /**
+     * Returns the untranslated base name (unlocalized name or custom name). Should be sent separately to the client so
+     * translation happens client-side.
+     */
+    public String getRawTermName() {
         if (((ICustomNameObject) this.iHost).hasCustomName()) {
             return ((ICustomNameObject) this.iHost).getCustomName();
         }
-
         final ItemStack item = getCrafterIcon();
-        if (item != null) {
-            return item.getUnlocalizedName();
-        } else {
-            return "Nothing";
+        return item != null ? item.getUnlocalizedName() : "Nothing";
+    }
+
+    /**
+     * Returns the suffix to append after translation, or null if none.
+     */
+    public String getAdjacentNameSuffix() {
+        if (((ICustomNameObject) this.iHost).hasCustomName()) return null;
+        final TileEntity hostTile = this.iHost.getTileEntity();
+        if (hostTile == null || hostTile.getWorldObj() == null) return null;
+        for (final ForgeDirection direction : this.iHost.getTargets()) {
+            final TileEntity directedTile = hostTile.getWorldObj().getTileEntity(
+                    hostTile.xCoord + direction.offsetX,
+                    hostTile.yCoord + direction.offsetY,
+                    hostTile.zCoord + direction.offsetZ);
+            if (directedTile == null) continue;
+            if (directedTile instanceof IInterfaceHost) {
+                try {
+                    if (((IInterfaceHost) directedTile).getInterfaceDuality().sameGrid(this.gridProxy.getGrid()))
+                        continue;
+                } catch (final GridAccessException e) {
+                    continue;
+                }
+            }
+            if (directedTile instanceof IInterfaceNameProvider provider) {
+                final String suffix = provider.getInterfaceNameSuffix();
+                if (suffix != null) return suffix;
+            }
         }
+        return null;
     }
 
     public BaseActionSource getActionSource() {
@@ -1778,7 +1796,10 @@ public class DualityInterface implements IGridTickable, IStorageMonitorable, IIn
         return unlockStacks;
     }
 
+    private boolean duringPushOut = false;
+
     public void updateRedstoneState() {
+        if (this.gridProxy.isActive() && !duringPushOut) this.pushItemsOut(this.iHost.getTargets());
         // reset cache to undecided
         redstoneState = YesNo.UNDECIDED;
 

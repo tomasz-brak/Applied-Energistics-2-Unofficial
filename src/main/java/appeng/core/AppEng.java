@@ -15,11 +15,14 @@ import java.util.concurrent.TimeUnit;
 
 import javax.annotation.Nonnull;
 
+import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.common.config.Configuration;
 
 import com.google.common.base.Stopwatch;
 
-import appeng.client.gui.AEBaseGui;
+import appeng.api.events.LocatableEventAnnounce;
+import appeng.api.events.LocatableEventAnnounce.LocatableEvent;
+import appeng.api.storage.data.AEStackTypeRegistry;
 import appeng.core.crash.CrashInfo;
 import appeng.core.crash.IntegrationCrashEnhancement;
 import appeng.core.crash.ModCrashEnhancement;
@@ -176,6 +179,8 @@ public final class AppEng {
         final Stopwatch start = Stopwatch.createStarted();
         AELog.info("Initialization ( started )");
 
+        AEStackTypeRegistry.initNetworkIds();
+
         if (this.exportConfig.isExportingItemNamesEnabled()) {
             final ExportProcess process = new ExportProcess(this.recipeDirectory, this.exportConfig);
             final Thread exportProcessThread = new Thread(process);
@@ -230,12 +235,12 @@ public final class AppEng {
 
     @EventHandler
     private void serverStopped(final FMLServerStoppedEvent event) {
-        if (WorldData.instance() != null) WorldData.instance().onServerStoppped();
+        if (WorldData.instance() != null) {
+            WorldData.instance().onServerStoppped();
+        }
         TickHandler.INSTANCE.shutdown();
         CraftingNotificationManager.clear();
-        if (event.getSide().isClient()) {
-            AEBaseGui.aeRenderItem.parent = null;
-        }
+        MinecraftForge.EVENT_BUS.post(new LocatableEventAnnounce(null, LocatableEvent.RemoveAll));
     }
 
     @EventHandler

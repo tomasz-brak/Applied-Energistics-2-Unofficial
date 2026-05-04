@@ -63,7 +63,7 @@ import appeng.api.storage.data.IAEItemStack;
 import appeng.api.storage.data.IAEStack;
 import appeng.api.util.ItemSearchDTO;
 import appeng.container.guisync.DataSynchronization;
-import appeng.container.implementations.ContainerCellWorkbench;
+import appeng.container.implementations.ContainerCellWorkbench.WorkbenchUpgradeInventory;
 import appeng.container.implementations.ContainerUpgradeable;
 import appeng.container.interfaces.IInventorySlotAware;
 import appeng.container.slot.AppEngSlot;
@@ -75,6 +75,9 @@ import appeng.container.slot.SlotInaccessible;
 import appeng.container.slot.SlotPatternTerm;
 import appeng.container.slot.SlotPlayerHotBar;
 import appeng.container.slot.SlotPlayerInv;
+import appeng.container.sync.SyncEndpoint;
+import appeng.container.sync.SyncManager;
+import appeng.container.sync.SyncRegistrar;
 import appeng.core.AEConfig;
 import appeng.core.AELog;
 import appeng.core.localization.PlayerMessages;
@@ -131,6 +134,7 @@ public abstract class AEBaseContainer extends Container {
      * GuiSync.Recurse requires lazy initialization
      */
     private DataSynchronization dataSync;
+    private final SyncManager syncManager = new SyncManager(this);
 
     @Deprecated
     public AEBaseContainer(final InventoryPlayer ip, final TileEntity myTile, final IPart myPart) {
@@ -363,6 +367,29 @@ public abstract class AEBaseContainer extends Container {
         }
     }
 
+    public final SyncManager getSyncManager() {
+        return this.syncManager;
+    }
+
+    /**
+     * Returns the root registrar for the container synchronization system.
+     * <p>
+     * Call this from container constructors to register explicit synchronization handlers with stable, unique keys.
+     * Handlers must be registered before synchronization starts. See {@link appeng.container.sync.SyncRegistrar} for
+     * the available handler types.
+     */
+    protected final SyncRegistrar syncRegistrar() {
+        return this.syncManager.root();
+    }
+
+    public final void receiveSyncData(final SyncEndpoint remoteEndpoint, final ByteBuf buf) {
+        this.syncManager.readIncoming(remoteEndpoint, buf);
+    }
+
+    public final void tickClientSync() {
+        this.syncManager.tickClient();
+    }
+
     protected void bindPlayerInventory(final InventoryPlayer inventoryPlayer, final int offsetX, final int offsetY) {
         // bind player inventory
         for (int i = 0; i < 3; i++) {
@@ -413,6 +440,8 @@ public abstract class AEBaseContainer extends Container {
             if (this.dataSync.hasChanges() && this.invPlayer.player instanceof EntityPlayerMP playerMP) {
                 NetworkHandler.instance.sendTo(new PacketGuiDataSync(this.dataSync::writeChanges), playerMP);
             }
+
+            this.syncManager.tickServer();
         }
 
         portableSourceTick();
@@ -560,13 +589,13 @@ public abstract class AEBaseContainer extends Container {
                 if (ContainerUpgradeable.class.isAssignableFrom(this.getClass())) {
                     // Check source or target
                     if (clickSlot.inventory instanceof UpgradeInventory
-                            || clickSlot.inventory instanceof ContainerCellWorkbench.Upgrades) {
+                            || clickSlot.inventory instanceof WorkbenchUpgradeInventory) {
                         if (!d.isPlayerSide() && !(clickSlot.inventory instanceof INetworkTool)) {
                             continue;
                         }
                     } else {
                         if (!(d.inventory instanceof UpgradeInventory)
-                                && !(d.inventory instanceof ContainerCellWorkbench.Upgrades)) {
+                                && !(d.inventory instanceof WorkbenchUpgradeInventory)) {
                             continue;
                         }
                     }

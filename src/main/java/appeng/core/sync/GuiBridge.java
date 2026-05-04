@@ -94,7 +94,9 @@ import appeng.container.implementations.ContainerRenamer;
 import appeng.container.implementations.ContainerSecurity;
 import appeng.container.implementations.ContainerSkyChest;
 import appeng.container.implementations.ContainerSpatialIOPort;
+import appeng.container.implementations.ContainerSpatialLinkChamber;
 import appeng.container.implementations.ContainerStorageBus;
+import appeng.container.implementations.ContainerStorageReshuffle;
 import appeng.container.implementations.ContainerVibrationChamber;
 import appeng.container.implementations.ContainerWireless;
 import appeng.core.stats.Achievements;
@@ -106,7 +108,7 @@ import appeng.helpers.IPriorityHost;
 import appeng.helpers.WirelessTerminalGuiObject;
 import appeng.items.contents.PriorityCardObject;
 import appeng.items.contents.QuartzKnifeObj;
-import appeng.parts.automation.PartFormationPlane;
+import appeng.parts.automation.PartBaseFormationPlane;
 import appeng.parts.automation.PartSharedItemBus;
 import appeng.tile.crafting.TileCraftingTile;
 import appeng.tile.crafting.TileMolecularAssembler;
@@ -114,10 +116,12 @@ import appeng.tile.grindstone.TileGrinder;
 import appeng.tile.misc.TileCondenser;
 import appeng.tile.misc.TileInscriber;
 import appeng.tile.misc.TileSecurity;
+import appeng.tile.misc.TileStorageReshuffle;
 import appeng.tile.misc.TileVibrationChamber;
 import appeng.tile.networking.TileWireless;
 import appeng.tile.qnb.TileQuantumBridge;
 import appeng.tile.spatial.TileSpatialIOPort;
+import appeng.tile.spatial.TileSpatialLinkChamber;
 import appeng.tile.storage.TileChest;
 import appeng.tile.storage.TileDrive;
 import appeng.tile.storage.TileIOPort;
@@ -184,18 +188,24 @@ public enum GuiBridge implements IGuiHandler {
 
     GUI_STORAGEBUS(ContainerStorageBus.class, IStorageBus.class, GuiHostType.WORLD, SecurityPermissions.BUILD),
 
-    GUI_FORMATION_PLANE(ContainerFormationPlane.class, PartFormationPlane.class, GuiHostType.WORLD,
+    GUI_FORMATION_PLANE(ContainerFormationPlane.class, PartBaseFormationPlane.class, GuiHostType.WORLD,
             SecurityPermissions.BUILD),
 
     GUI_PRIORITY(ContainerPriority.class, IPriorityHost.class, GuiHostType.WORLD, SecurityPermissions.BUILD),
 
     GUI_SECURITY(ContainerSecurity.class, TileSecurity.class, GuiHostType.WORLD, SecurityPermissions.SECURITY),
 
+    GUI_STORAGE_RESHUFFLE(ContainerStorageReshuffle.class, TileStorageReshuffle.class, GuiHostType.WORLD,
+            SecurityPermissions.BUILD),
+
     // extends (Container/Gui) + Bus
     GUI_LEVEL_EMITTER(ContainerLevelEmitter.class, ILevelEmitter.class, GuiHostType.ITEM_OR_WORLD,
             SecurityPermissions.BUILD),
 
     GUI_SPATIAL_IO_PORT(ContainerSpatialIOPort.class, TileSpatialIOPort.class, GuiHostType.WORLD,
+            SecurityPermissions.BUILD),
+
+    GUI_SPATIAL_LINK_CHAMBER(ContainerSpatialLinkChamber.class, TileSpatialLinkChamber.class, GuiHostType.WORLD,
             SecurityPermissions.BUILD),
 
     GUI_INSCRIBER(ContainerInscriber.class, TileInscriber.class, GuiHostType.WORLD, null),

@@ -24,6 +24,8 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
 
+import com.gtnewhorizon.gtnhlib.item.ItemStackNBT;
+
 import appeng.api.config.Actionable;
 import appeng.api.config.FuzzyMode;
 import appeng.api.config.Upgrades;
@@ -40,7 +42,6 @@ import appeng.api.storage.data.IAEStack;
 import appeng.api.storage.data.IAEStackType;
 import appeng.api.storage.data.IItemList;
 import appeng.tile.inventory.IAEStackInventory;
-import appeng.util.Platform;
 
 public abstract class CellInventory<StackType extends IAEStack<StackType>> implements ICellInventory<StackType> {
 
@@ -89,7 +90,7 @@ public abstract class CellInventory<StackType extends IAEStack<StackType>> imple
         }
 
         this.container = container;
-        this.tagCompound = Platform.openNbtData(o);
+        this.tagCompound = ItemStackNBT.get(o);
 
         this.storedTypes = this.tagCompound.getShort(getStackTypeTag());
         this.storedCount = this.tagCompound.getLong(getStackCountTag());
@@ -225,7 +226,7 @@ public abstract class CellInventory<StackType extends IAEStack<StackType>> imple
                     this.saveChanges();
                 }
 
-                return r;
+                return cardVoidOverflow ? null : r;
             } else {
                 if (mode == Actionable.MODULATE) {
                     l.setStackSize(l.getStackSize() + input.getStackSize());
@@ -263,7 +264,7 @@ public abstract class CellInventory<StackType extends IAEStack<StackType>> imple
                         this.updateItemCount(toWrite.getStackSize());
                         this.saveChanges();
                     }
-                    return toReturn;
+                    return cardVoidOverflow ? null : toReturn;
                 }
 
                 if (mode == Actionable.MODULATE) {

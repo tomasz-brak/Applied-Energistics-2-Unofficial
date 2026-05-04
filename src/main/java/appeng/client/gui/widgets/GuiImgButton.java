@@ -19,11 +19,13 @@ import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.util.StatCollector;
 
+import org.lwjgl.input.Keyboard;
 import org.lwjgl.opengl.GL11;
 
 import appeng.api.config.AccessRestriction;
 import appeng.api.config.ActionItems;
 import appeng.api.config.AdvancedBlockingMode;
+import appeng.api.config.CPUSortBy;
 import appeng.api.config.CellType;
 import appeng.api.config.CondenserOutput;
 import appeng.api.config.CraftingAllow;
@@ -33,6 +35,7 @@ import appeng.api.config.CraftingStatus;
 import appeng.api.config.ExtractionMode;
 import appeng.api.config.FullnessMode;
 import appeng.api.config.FuzzyMode;
+import appeng.api.config.HealthSortOrder;
 import appeng.api.config.InsertionMode;
 import appeng.api.config.ItemSubstitution;
 import appeng.api.config.LevelType;
@@ -40,7 +43,6 @@ import appeng.api.config.LockCraftingMode;
 import appeng.api.config.OperationMode;
 import appeng.api.config.PatternBeSubstitution;
 import appeng.api.config.PatternSlotConfig;
-import appeng.api.config.PinsState;
 import appeng.api.config.PowerUnits;
 import appeng.api.config.PriorityCardMode;
 import appeng.api.config.RedstoneMode;
@@ -240,6 +242,18 @@ public class GuiImgButton extends GuiButton implements ITooltip {
                     SortDir.DESCENDING,
                     ButtonToolTips.SortOrder,
                     ButtonToolTips.ToggleSortDirection);
+            this.registerApp(
+                    48,
+                    Settings.CPU_SORT_DIRECTION,
+                    SortDir.ASCENDING,
+                    ButtonToolTips.SortOrder,
+                    ButtonToolTips.ToggleSortDirection);
+            this.registerApp(
+                    49,
+                    Settings.CPU_SORT_DIRECTION,
+                    SortDir.DESCENDING,
+                    ButtonToolTips.SortOrder,
+                    ButtonToolTips.ToggleSortDirection);
 
             this.registerApp(
                     16 * 2 + 3,
@@ -377,6 +391,18 @@ public class GuiImgButton extends GuiButton implements ITooltip {
                     ActionItems.WRENCH,
                     ButtonToolTips.PartitionStorage,
                     ButtonToolTips.PartitionStorageHint);
+            this.registerApp(
+                    66,
+                    Settings.ACTIONS,
+                    ActionItems.CONTROL_BUTTON_VALUES_OFF,
+                    ButtonToolTips.ControlButtonValues,
+                    ButtonToolTips.ControlButtonValuesHint);
+            this.registerApp(
+                    66,
+                    Settings.ACTIONS,
+                    ActionItems.CONTROL_BUTTON_VALUES_ON,
+                    ButtonToolTips.ControlButtonValues,
+                    ButtonToolTips.ControlButtonValuesHint);
 
             this.registerApp(
                     16 * 6 + 8,
@@ -660,6 +686,19 @@ public class GuiImgButton extends GuiButton implements ITooltip {
                     ActionItems.HIGHLIGHT_INTERFACE,
                     ButtonToolTips.HighlightInterface,
                     "");
+            this.registerApp(70, Settings.ACTIONS, ActionItems.RENAME_INTERFACE, ButtonToolTips.RenameInterface, "");
+            this.registerApp(
+                    5 * 16 + 10,
+                    Settings.INTERFACE_TERMINAL,
+                    YesNo.YES,
+                    ButtonToolTips.InterfaceTerminalVisibility,
+                    ButtonToolTips.InterfaceTerminalVisibilityVisible);
+            this.registerApp(
+                    5 * 16 + 11,
+                    Settings.INTERFACE_TERMINAL,
+                    YesNo.NO,
+                    ButtonToolTips.InterfaceTerminalVisibility,
+                    ButtonToolTips.InterfaceTerminalVisibilityHidden);
             this.registerApp(
                     72,
                     Settings.ACTIONS,
@@ -850,39 +889,12 @@ public class GuiImgButton extends GuiButton implements ITooltip {
                     ButtonToolTips.CPUOnlyAllowNonPlayerDesc);
 
             this.registerApp(
-                    16 * 15 + 14,
-                    Settings.PINS_STATE,
-                    PinsState.DISABLED,
-                    ButtonToolTips.PinsSection,
-                    ButtonToolTips.PinsSectionDisabled);
-
-            this.registerApp(
                     16 * 15 + 13,
-                    Settings.PINS_STATE,
-                    PinsState.ONE,
+                    Settings.ACTIONS,
+                    ActionItems.PINS,
                     ButtonToolTips.PinsSection,
-                    ButtonToolTips.PinsSectionActive);
-
-            this.registerApp(
-                    16 * 15 + 13,
-                    Settings.PINS_STATE,
-                    PinsState.TWO,
-                    ButtonToolTips.PinsSection,
-                    ButtonToolTips.PinsSectionActive);
-
-            this.registerApp(
-                    16 * 15 + 13,
-                    Settings.PINS_STATE,
-                    PinsState.THREE,
-                    ButtonToolTips.PinsSection,
-                    ButtonToolTips.PinsSectionActive);
-
-            this.registerApp(
-                    16 * 15 + 13,
-                    Settings.PINS_STATE,
-                    PinsState.FOUR,
-                    ButtonToolTips.PinsSection,
-                    ButtonToolTips.PinsSectionActive);
+                    ButtonToolTips.PinsSectionActive,
+                    ButtonToolTips.PinsSectionHint);
 
             this.registerApp(
                     16 * 3 + 7,
@@ -897,14 +909,131 @@ public class GuiImgButton extends GuiButton implements ITooltip {
                     ActionItems.TOGGLE_SHOW_ONLY_SUBSTITUTE_OFF,
                     ButtonToolTips.ToggleShowOnlySubstitute,
                     ButtonToolTips.ToggleShowOnlySubstituteOffDesc);
+
+            this.registerApp(64, Settings.CPU_SORT_BY, CPUSortBy.NAME, ButtonToolTips.SortBy, ButtonToolTips.CPUName);
+            this.registerApp(
+                    19,
+                    Settings.CPU_SORT_BY,
+                    CPUSortBy.CRAFTING,
+                    ButtonToolTips.SortBy,
+                    ButtonToolTips.CPUCrafting);
+            this.registerApp(
+                    16 * 14 + 3,
+                    Settings.CPU_SORT_BY,
+                    CPUSortBy.AUTOMATION,
+                    ButtonToolTips.SortBy,
+                    ButtonToolTips.Automation);
+            this.registerApp(
+                    67,
+                    Settings.CPU_SORT_BY,
+                    CPUSortBy.STORAGE_MEMORY,
+                    ButtonToolTips.SortBy,
+                    ButtonToolTips.NumberOfStorageMemory);
+            this.registerApp(
+                    14 * 16 + 6,
+                    Settings.CPU_SORT_BY,
+                    CPUSortBy.COPROCESSORS,
+                    ButtonToolTips.SortBy,
+                    ButtonToolTips.NumberOfCoProcessors);
+            this.registerApp(
+                    8 * 16 + 7,
+                    Settings.ACTIONS,
+                    ActionItems.RESHUFFLE_MODE_PARTITION,
+                    ButtonToolTips.ReshuffleTabScan,
+                    ButtonToolTips.ReshuffleTabScanHint);
+            this.registerApp(
+                    8 * 16 + 8,
+                    Settings.ACTIONS,
+                    ActionItems.RESHUFFLE_MODE_RESHUFFLE,
+                    ButtonToolTips.ReshuffleTab,
+                    ButtonToolTips.ReshuffleTabHint);
+            this.registerApp(
+                    8 * 16 + 8,
+                    Settings.ACTIONS,
+                    ActionItems.OPEN_RESHUFFLE_ON,
+                    ButtonToolTips.OpenReshuffle,
+                    ButtonToolTips.OpenReshuffleDesc);
+            this.registerApp(
+                    8 * 16 + 9,
+                    Settings.ACTIONS,
+                    ActionItems.OPEN_RESHUFFLE_OFF,
+                    ButtonToolTips.OpenReshuffle,
+                    ButtonToolTips.OpenReshuffleOffDesc);
+            this.registerApp(
+                    8 * 16 + 10,
+                    Settings.ACTIONS,
+                    ActionItems.RESHUFFLE_MODE_LOCATE,
+                    ButtonToolTips.ReshuffleIncludeSubnets,
+                    ButtonToolTips.ReshuffleLocate);
+            this.registerApp(
+                    8 * 16 + 11,
+                    Settings.ACTIONS,
+                    ActionItems.RESHUFFLE_MODE_HEALTH,
+                    ButtonToolTips.ReshuffleHealthTab,
+                    ButtonToolTips.ReshuffleHealthTabHint);
+            this.registerApp(
+                    8 * 16 + 12,
+                    Settings.INCLUDE_SUBNETS,
+                    YesNo.YES,
+                    ButtonToolTips.ReshuffleIncludeSubnets,
+                    ButtonToolTips.ReshuffleIncludeSubnetsOn);
+            this.registerApp(
+                    8 * 16 + 13,
+                    Settings.INCLUDE_SUBNETS,
+                    YesNo.NO,
+                    ButtonToolTips.ReshuffleIncludeSubnets,
+                    ButtonToolTips.ReshuffleIncludeSubnetsOff);
+            this.registerApp(
+                    4 * 16 + 10,
+                    Settings.CELL_HEALTH_SORT,
+                    HealthSortOrder.FILL_PCT,
+                    ButtonToolTips.CellHealthSortBy,
+                    ButtonToolTips.CellHealthSortByFill);
+            this.registerApp(
+                    4 * 16 + 3,
+                    Settings.CELL_HEALTH_SORT,
+                    HealthSortOrder.BYTES_TOTAL,
+                    ButtonToolTips.CellHealthSortBy,
+                    ButtonToolTips.CellHealthSortBySize);
+            this.registerApp(
+                    2 * 16,
+                    Settings.INSERT_ORDER,
+                    YesNo.YES,
+                    ButtonToolTips.ReshuffleInsertOrder,
+                    ButtonToolTips.ReshuffleInsertOrderOn);
+            this.registerApp(
+                    16,
+                    Settings.INSERT_ORDER,
+                    YesNo.NO,
+                    ButtonToolTips.ReshuffleInsertOrder,
+                    ButtonToolTips.ReshuffleInsertOrderOff);
+
+            this.registerApp(
+                    5 * 16 + 11,
+                    Settings.ACTIONS,
+                    ActionItems.TOGGLE_SHOW_HIDDEN_INTERFACES_ON,
+                    ButtonToolTips.ToggleShowHiddenInterfaces,
+                    ButtonToolTips.ToggleShowHiddenInterfacesOnDesc);
+            this.registerApp(
+                    5 * 16 + 10,
+                    Settings.ACTIONS,
+                    ActionItems.TOGGLE_SHOW_HIDDEN_INTERFACES_OFF,
+                    ButtonToolTips.ToggleShowHiddenInterfaces,
+                    ButtonToolTips.ToggleShowHiddenInterfacesOffDesc);
         }
     }
 
     private void registerApp(final int iconIndex, final Settings setting, final Enum val, final ButtonToolTips title,
             final Object hint) {
+        registerApp(iconIndex, setting, val, title, hint, null);
+    }
+
+    private void registerApp(final int iconIndex, final Settings setting, final Enum val, final ButtonToolTips title,
+            final Object hint, final ButtonToolTips altHint) {
         final ButtonAppearance a = new ButtonAppearance();
         a.displayName = title.getUnlocalized();
         a.displayValue = (String) (hint instanceof String ? hint : ((ButtonToolTips) hint).getUnlocalized());
+        a.altDisplayValue = altHint != null ? altHint.getUnlocalized() : null;
         a.index = iconIndex;
         appearances.put(new EnumPair(setting, val), a);
     }
@@ -970,10 +1099,10 @@ public class GuiImgButton extends GuiButton implements ITooltip {
     public String getMessage() {
         String displayName = null;
         String displayValue = null;
+        ButtonAppearance buttonAppearance = null;
 
         if (this.buttonSetting != null && this.currentValue != null) {
-            final ButtonAppearance buttonAppearance = appearances
-                    .get(new EnumPair(this.buttonSetting, this.currentValue));
+            buttonAppearance = appearances.get(new EnumPair(this.buttonSetting, this.currentValue));
             if (buttonAppearance == null) {
                 return "No Such Message";
             }
@@ -984,13 +1113,20 @@ public class GuiImgButton extends GuiButton implements ITooltip {
 
         if (displayName != null) {
             String name = StatCollector.translateToLocal(displayName);
-            String value = StatCollector.translateToLocal(displayValue);
+            String valueKey = displayValue;
+            if (!Platform.isServer() && buttonAppearance != null && buttonAppearance.altDisplayValue != null) {
+                boolean altHeld = Keyboard.isKeyDown(Keyboard.KEY_LMENU) || Keyboard.isKeyDown(Keyboard.KEY_RMENU);
+                if (!altHeld) {
+                    valueKey = buttonAppearance.altDisplayValue;
+                }
+            }
+            String value = StatCollector.translateToLocal(valueKey);
 
             if (name == null || name.isEmpty()) {
                 name = displayName;
             }
             if (value == null || value.isEmpty()) {
-                value = displayValue;
+                value = valueKey;
             }
 
             if (this.fillVar != null) {
@@ -1001,7 +1137,7 @@ public class GuiImgButton extends GuiButton implements ITooltip {
 
             if (Platform.isServer()) return name + '\n' + value;
 
-            value = Minecraft.getMinecraft().fontRenderer.wrapFormattedStringToWidth(value, 150);
+            value = Minecraft.getMinecraft().fontRenderer.wrapFormattedStringToWidth(value, 250);
 
             return name + '\n' + value;
         }
@@ -1093,5 +1229,6 @@ public class GuiImgButton extends GuiButton implements ITooltip {
         public int index;
         public String displayName;
         public String displayValue;
+        public String altDisplayValue;
     }
 }

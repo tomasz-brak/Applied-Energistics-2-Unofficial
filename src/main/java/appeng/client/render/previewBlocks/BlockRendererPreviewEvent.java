@@ -4,6 +4,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
+import net.minecraftforge.event.world.WorldEvent;
 
 import appeng.core.AEConfig;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
@@ -27,7 +28,9 @@ public class BlockRendererPreviewEvent {
         if (event.phase != TickEvent.Phase.END) return;
         if (AEConfig.instance.previewBlocks) {
             EntityPlayer player = Minecraft.getMinecraft().thePlayer;
-            if (player == null) return;
+            if (player == null) {
+                return;
+            }
 
             ItemStack heldItem = player.getHeldItem();
             if (heldItem == null) {
@@ -44,6 +47,14 @@ public class BlockRendererPreviewEvent {
             ViewHelper.setPlayer(player);
             ViewHelper.setCachedItemStack(currentItem);
             ViewHelper.updatePreview(player);
+        }
+    }
+
+    @SubscribeEvent
+    public void onWorldUnload(WorldEvent.Unload event) {
+        if (event.world.isRemote) {
+            ViewHelper.setPlayer(null);
+            ViewHelper.clearCache();
         }
     }
 

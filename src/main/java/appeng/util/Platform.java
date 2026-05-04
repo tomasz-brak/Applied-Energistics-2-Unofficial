@@ -64,6 +64,7 @@ import net.minecraft.util.Vec3;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
 import net.minecraft.world.chunk.Chunk;
+import net.minecraftforge.common.util.Constants.NBT;
 import net.minecraftforge.common.util.FakePlayerFactory;
 import net.minecraftforge.common.util.ForgeDirection;
 import net.minecraftforge.oredict.OreDictionary;
@@ -138,7 +139,6 @@ import cofh.api.item.IToolHammer;
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.Loader;
 import cpw.mods.fml.common.ModContainer;
-import cpw.mods.fml.common.network.ByteBufUtils;
 import cpw.mods.fml.relauncher.ReflectionHelper;
 import cpw.mods.fml.relauncher.Side;
 import cpw.mods.fml.relauncher.SideOnly;
@@ -176,6 +176,7 @@ public class Platform {
     public static final boolean isEIOLoaded = Loader.isModLoaded("EnderIO");
     public static final boolean isMultiPartLoaded = Loader.isModLoaded("ForgeMultipart");
     public static final boolean isBaublesLoaded = Loader.isModLoaded("Baubles|Expanded");
+    public static final boolean isBackhandLoaded = Loader.isModLoaded("backhand");
 
     static {
         BYTE_LIMIT = new double[10];
@@ -652,16 +653,18 @@ public class Platform {
         }
     }
 
-    /*
-     * Creates / or loads previous NBT Data on items, used for editing items owned by AE.
+    /**
+     * This method is deprecated because it adds a NBT tag unconditionally to ItemStacks. To manipulate NBT data of
+     * ItemStack do it manually by checking if the tag exists or use the
+     * {@link com.gtnewhorizon.gtnhlib.item.ItemStackNBT} util class.
      */
-    public static NBTTagCompound openNbtData(final ItemStack i) {
+    @Nonnull
+    @Deprecated
+    public static NBTTagCompound openNbtData(@Nonnull final ItemStack i) {
         NBTTagCompound compound = i.getTagCompound();
-
         if (compound == null) {
             i.setTagCompound(compound = new NBTTagCompound());
         }
-
         return compound;
     }
 
@@ -1259,14 +1262,31 @@ public class Platform {
         return 0;
     }
 
-    public static <StackType extends IAEStack> StackType poweredExtraction(final IEnergySource energy,
-            final IMEInventory<StackType> cell, final StackType request, final BaseActionSource src) {
-        final StackType possible = cell.extractItems((StackType) request.copy(), Actionable.SIMULATE, src);
+    /**
+     * Tries to extract items using available power.
+     *
+     * @return the extracted stack, or {@code null} if nothing can be extracted
+     */
+    @Nullable
+    public static <StackType extends IAEStack> StackType poweredExtraction(@Nonnull final IEnergySource energy,
+            @Nonnull final IMEInventory<StackType> cell, @Nonnull final StackType request,
+            @Nonnull final BaseActionSource src) {
+        return poweredExtraction(energy, cell, request, src, Actionable.MODULATE);
+    }
 
-        long retrieved = 0;
-        if (possible != null) {
-            retrieved = possible.getStackSize();
-        }
+    /**
+     * Tries to extract items using available power.
+     *
+     * @return the extracted stack, or {@code null} if nothing can be extracted
+     */
+    @Nullable
+    public static <StackType extends IAEStack> StackType poweredExtraction(@Nonnull final IEnergySource energy,
+            @Nonnull final IMEInventory<StackType> cell, @Nonnull final StackType request,
+            @Nonnull final BaseActionSource src, @Nonnull final Actionable mode) {
+        final StackType possible = cell.extractItems((StackType) request.copy(), Actionable.SIMULATE, src);
+        if (possible == null) return null;
+
+        final long retrieved = possible.getStackSize();
         final int typeMultiplier = request.getAmountPerUnit();
 
         final double availablePower = energy.extractAEPower(
@@ -1277,15 +1297,18 @@ public class Platform {
         final long itemToExtract = Math.min((long) (availablePower * typeMultiplier + 0.9), retrieved);
 
         if (itemToExtract > 0) {
-            energy.extractAEPower(
-                    Platform.ceilDiv(retrieved, typeMultiplier),
-                    Actionable.MODULATE,
-                    PowerMultiplier.CONFIG);
-
             possible.setStackSize(itemToExtract);
-            final StackType ret = cell.extractItems(possible, Actionable.MODULATE, src);
 
-            if (ret != null && src.isPlayer()) {
+            if (mode == Actionable.MODULATE) {
+                energy.extractAEPower(
+                        Platform.ceilDiv(retrieved, typeMultiplier),
+                        Actionable.MODULATE,
+                        PowerMultiplier.CONFIG);
+            }
+
+            final StackType ret = cell.extractItems(possible, mode, src);
+
+            if (mode == Actionable.MODULATE && ret != null && src.isPlayer()) {
                 Stats.ItemsExtracted.addToPlayer(((PlayerSource) src).player, (int) ret.getStackSize());
             }
 
@@ -1295,8 +1318,27 @@ public class Platform {
         return null;
     }
 
-    public static <StackType extends IAEStack> StackType poweredInsert(final IEnergySource energy,
-            final IMEInventory<StackType> cell, final StackType input, final BaseActionSource src) {
+    /**
+     * Tries to insert items using available power.
+     *
+     * @return the remaining stack that could not be inserted, or {@code null} if everything was inserted
+     */
+    @Nullable
+    public static <StackType extends IAEStack> StackType poweredInsert(@Nonnull final IEnergySource energy,
+            @Nonnull final IMEInventory<StackType> cell, @Nonnull final StackType input,
+            @Nonnull final BaseActionSource src) {
+        return poweredInsert(energy, cell, input, src, Actionable.MODULATE);
+    }
+
+    /**
+     * Tries to insert items using available power.
+     *
+     * @return the remaining stack that could not be inserted, or {@code null} if everything was inserted
+     */
+    @Nullable
+    public static <StackType extends IAEStack> StackType poweredInsert(@Nonnull final IEnergySource energy,
+            @Nonnull final IMEInventory<StackType> cell, @Nonnull final StackType input,
+            @Nonnull final BaseActionSource src, @Nonnull final Actionable mode) {
         final StackType possible = cell.injectItems((StackType) input.copy(), Actionable.SIMULATE, src);
 
         long stored = input.getStackSize();
@@ -1311,19 +1353,23 @@ public class Platform {
         final long itemToAdd = Math.min((long) (availablePower * typeMultiplier + 0.9), stored);
 
         if (itemToAdd > 0) {
-            energy.extractAEPower(
-                    Platform.ceilDiv(stored, typeMultiplier),
-                    Actionable.MODULATE,
-                    PowerMultiplier.CONFIG);
+            if (mode == Actionable.MODULATE) {
+                energy.extractAEPower(
+                        Platform.ceilDiv(stored, typeMultiplier),
+                        Actionable.MODULATE,
+                        PowerMultiplier.CONFIG);
+            }
 
             if (itemToAdd < input.getStackSize()) {
                 final long original = input.getStackSize();
                 final StackType split = (StackType) input.copy();
-                split.decStackSize(itemToAdd);
-                input.setStackSize(itemToAdd);
-                split.add(cell.injectItems(input, Actionable.MODULATE, src));
+                final StackType toInsert = mode == Actionable.MODULATE ? input : (StackType) input.copy();
 
-                if (src.isPlayer()) {
+                split.decStackSize(itemToAdd);
+                toInsert.setStackSize(itemToAdd);
+                split.add(cell.injectItems(toInsert, mode, src));
+
+                if (mode == Actionable.MODULATE && src.isPlayer()) {
                     final long diff = original - split.getStackSize();
                     Stats.ItemsInserted.addToPlayer(((PlayerSource) src).player, (int) diff);
                 }
@@ -1331,9 +1377,9 @@ public class Platform {
                 return split;
             }
 
-            final StackType ret = cell.injectItems(input, Actionable.MODULATE, src);
+            final StackType ret = cell.injectItems(input, mode, src);
 
-            if (src.isPlayer()) {
+            if (mode == Actionable.MODULATE && src.isPlayer()) {
                 final long diff = ret == null ? input.getStackSize() : input.getStackSize() - ret.getStackSize();
                 Stats.ItemsInserted.addToPlayer(((PlayerSource) src).player, (int) diff);
             }
@@ -1930,14 +1976,10 @@ public class Platform {
 
     public static void writeStackByte(IAEStack<?> stack, ByteBuf buffer) {
         try {
-            ByteBufUtils.writeUTF8String(buffer, stack == null ? "" : stack.getStackType().getId());
-            if (stack != null) {
-                stack.writeToPacket(buffer);
-            }
+            IAEStack.writeToPacketGeneric(buffer, stack);
         } catch (RuntimeException | IOException e) {
             throw new RuntimeException(e);
         }
-
     }
 
     public static IAEStack<?> readStackByte(ByteBuf buffer) {
@@ -1987,7 +2029,7 @@ public class Platform {
 
     public static IAEStack<?> readStackNBT(NBTTagCompound tag, boolean convert) {
         if (tag == null) return null;
-        if (tag.hasKey("StackType", 1)) {
+        if (tag.hasKey("StackType", NBT.TAG_BYTE)) {
             // For old experimental compatibility
             final byte stackType = tag.getByte("StackType");
             return switch (stackType) {

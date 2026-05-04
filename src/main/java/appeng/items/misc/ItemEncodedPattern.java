@@ -34,14 +34,15 @@ import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.StringUtils;
 import net.minecraft.world.World;
 import net.minecraftforge.client.MinecraftForgeClient;
+import net.minecraftforge.common.util.Constants.NBT;
 import net.minecraftforge.event.ForgeEventFactory;
 
 import appeng.api.AEApi;
 import appeng.api.implementations.ICraftingPatternItem;
 import appeng.api.networking.crafting.ICraftingPatternDetails;
-import appeng.api.storage.data.IAEFluidStack;
 import appeng.api.storage.data.IAEItemStack;
 import appeng.api.storage.data.IAEStack;
+import appeng.api.storage.data.IAEStackType;
 import appeng.client.render.items.ItemEncodedPatternRenderer;
 import appeng.core.CommonHelper;
 import appeng.core.features.AEFeature;
@@ -130,9 +131,9 @@ public class ItemEncodedPattern extends AEBaseItem implements ICraftingPatternIt
             unknownItem.setStackDisplayName(GuiText.UnknownItem.getLocal());
 
             inItems = convertToCondensedAEList(
-                    loadIAEStackFromNBT(encodedValue.getTagList("in", 10), false, unknownItem));
+                    loadIAEStackFromNBT(encodedValue.getTagList("in", NBT.TAG_COMPOUND), false, unknownItem));
             outItems = convertToCondensedAEList(
-                    loadIAEStackFromNBT(encodedValue.getTagList("out", 10), false, unknownItem));
+                    loadIAEStackFromNBT(encodedValue.getTagList("out", NBT.TAG_COMPOUND), false, unknownItem));
         } else {
             inItems = details.getCondensedAEInputs();
             outItems = details.getCondensedAEOutputs();
@@ -161,10 +162,8 @@ public class ItemEncodedPattern extends AEBaseItem implements ICraftingPatternIt
                 + String.format(GuiText.PatternView.getLocal(), NEIClientConfig.getKeyName("gui.pattern_view"))
                 + EnumChatFormatting.RESET;
 
-        recipeIsBroken = addInformation(player, inItems, in, ingredients, displayMoreInfo, EnumChatFormatting.GREEN)
-                || recipeIsBroken;
-        recipeIsBroken = addInformation(player, outItems, out, result, displayMoreInfo, EnumChatFormatting.AQUA)
-                || recipeIsBroken;
+        recipeIsBroken = recipeIsBroken || addInformation(inItems, in, ingredients);
+        recipeIsBroken = recipeIsBroken || addInformation(outItems, out, result);
 
         if (recipeIsBroken) {
             lines.add(EnumChatFormatting.RED + GuiText.InvalidPattern.getLocal());
@@ -266,49 +265,33 @@ public class ItemEncodedPattern extends AEBaseItem implements ICraftingPatternIt
         return output;
     }
 
-    private boolean addInformation(final EntityPlayer player, final IAEStack<?>[] items, final List<String> lines,
-            String label, final boolean displayMoreInfo, EnumChatFormatting color) {
+    private boolean addInformation(final IAEStack<?>[] items, final List<String> lines, String label) {
         final ItemStack unknownItem = new ItemStack(Blocks.fire);
-        boolean recipeIsBroken = false;
         boolean first = true;
         List<IAEStack<?>> itemsList = Arrays.asList(items);
         List<IAEStack<?>> sortedItems = itemsList.stream().sorted(Comparator.comparingLong(IAEStack::getStackSize))
                 .collect(Collectors.toList());
-        boolean isFluid;
-        EnumChatFormatting oldColor = color;
 
         for (int i = sortedItems.size() - 1; i >= 0; i--) {
-            IAEStack<?> item = sortedItems.get(i);
+            final IAEStack<?> item = sortedItems.get(i);
+            final IAEStackType<?> type = item.getStackType();
 
-            if (!recipeIsBroken && item.equals(unknownItem)) {
-                recipeIsBroken = true;
-            }
+            if (item.equals(unknownItem)) return true;
 
-            if (item instanceof IAEFluidStack) {
-                label = EnumChatFormatting.GOLD + label;
-                color = EnumChatFormatting.GOLD;
-                isFluid = true;
-            } else {
-                color = oldColor;
-                isFluid = false;
-            }
+            final String itemCountText = NumberFormat.getNumberInstance(locale).format(item.getStackSize());
+            final String itemText = isGTLoaded && item instanceof IAEItemStack ais
+                    && ais.getItem() instanceof ItemIntegratedCircuit
+                            ? Platform.getItemDisplayName(item) + " " + ais.getItemStack().getItemDamage()
+                            : Platform.getItemDisplayName(item);
 
-            String itemCountText = NumberFormat.getNumberInstance(locale).format(item.getStackSize());
-            String itemText;
-            if (isGTLoaded) {
-                itemText = isFluid ? Platform.getItemDisplayName(item)
-                        : item instanceof IAEItemStack ais && ais.getItem() instanceof ItemIntegratedCircuit
-                                ? Platform.getItemDisplayName(item) + " " + ais.getItemStack().getItemDamage()
-                                : Platform.getItemDisplayName(item);
-            } else {
-                itemText = Platform.getItemDisplayName(item);
-            }
-            String fullText = "   " + EnumChatFormatting.WHITE
+            final String fullText = "   " + EnumChatFormatting.WHITE
                     + itemCountText
                     + EnumChatFormatting.RESET
-                    + (isFluid ? EnumChatFormatting.WHITE + "L " : " ")
+                    + EnumChatFormatting.WHITE
+                    + type.getDisplayUnit()
+                    + " "
                     + EnumChatFormatting.RESET
-                    + color
+                    + type.getColorDefinition()
                     + itemText;
 
             if (first) {
@@ -319,6 +302,6 @@ public class ItemEncodedPattern extends AEBaseItem implements ICraftingPatternIt
             first = false;
         }
 
-        return recipeIsBroken;
+        return false;
     }
 }
